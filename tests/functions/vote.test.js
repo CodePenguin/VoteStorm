@@ -63,4 +63,19 @@ describe('vote function', () => {
     });
     expect(res.statusCode).toBe(409);
   });
+
+  it('rejects a vote when room status is not active, even if question ID matches', async () => {
+    // Update the existing room to status='lobby' while keeping current_question_id=1
+    const db = createDb();
+    await db.execute({
+      sql: 'UPDATE rooms SET status = ? WHERE room_code = ?',
+      args: ['lobby', 'ROOM01'],
+    });
+
+    const res = await handler({
+      httpMethod: 'POST',
+      body: JSON.stringify({ roomCode: 'ROOM01', questionId: 1, deviceId: 'dev-c', value: 0 }),
+    });
+    expect(res.statusCode).toBe(409);
+  });
 });
