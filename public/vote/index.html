@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>LivePoll</title>
+<script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.3/dist/cdn.min.js"></script>
+<script src="https://cdn.ably.com/lib/ably.min-2.js"></script>
+<script src="/shared/api.js"></script>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 480px; margin: 3rem auto; padding: 0 1rem; text-align: center; }
+  button.option { display: block; width: 100%; padding: 1rem; margin: .5rem 0; font-size: 1.1rem; border-radius: 8px; border: 2px solid #2563eb; background: white; cursor: pointer; }
+  button.option:hover { background: #eff6ff; }
+  .rating-scale { display: flex; justify-content: center; gap: .5rem; }
+</style>
+</head>
+<body x-data="voteApp()" x-init="init()">
+  <h1>LivePoll</h1>
+
+  <template x-if="!roomCode">
+    <p>No room specified.</p>
+  </template>
+
+  <template x-if="roomCode && !currentQuestion">
+    <p>Waiting for the next question&hellip;</p>
+  </template>
+
+  <template x-if="currentQuestion && hasVoted">
+    <p>Thanks! Waiting for the next question&hellip;</p>
+  </template>
+
+  <template x-if="currentQuestion && !hasVoted">
+    <div>
+      <h2 x-text="currentQuestion.prompt"></h2>
+
+      <template x-if="currentQuestion.type === 'choice'">
+        <div>
+          <template x-for="(opt, i) in currentQuestion.options" :key="i">
+            <button class="option" @click="vote(i)" x-text="opt"></button>
+          </template>
+        </div>
+      </template>
+
+      <template x-if="currentQuestion.type === 'rating'">
+        <div class="rating-scale">
+          <template x-for="n in (currentQuestion.scaleMax - currentQuestion.scaleMin + 1)" :key="n">
+            <button class="option" @click="vote(currentQuestion.scaleMin + n - 1)" x-text="currentQuestion.scaleMin + n - 1"></button>
+          </template>
+        </div>
+      </template>
+    </div>
+  </template>
+
+<script>
+function voteApp() {
+  return {
+    roomCode: null,
+    deviceId: null,
+    currentQuestion: null,
+    hasVoted: false,
+
+    async init() {
+      const parts = window.location.pathname.split('/').filter(Boolean);
+      this.roomCode = parts.length > 1 ? parts[1] : null;
+      if (!this.roomCode) return;
+      this.deviceId = LivePoll.getDeviceId();
+
+      const state = await LivePoll.api(`get-room-state?roomCode=${encodeURIComponent(this.roomCode)}`);
+      this.applyState(state.currentQuestion);
+
+      LivePoll.subscribeRoom(this.roomCode, {
+        state: (data) => this.applyState(data.currentQuestion),
+        reset: (data) => this.onReset(data),
+      });
+    },
+
+    applyState(question) {
+      this.currentQuestion = question;
+      this.hasVoted = question ? !!localStorage.getItem(`livepoll_voted_${question.id}`) : false;
+    },
+
+    onReset(data) {
+      if (data.questionId) {
+        localStorage.removeItem(`livepoll_voted_${data.questionId}`);
+        if (this.currentQuestion && this.currentQuestion.id === data.questionId) this.hasVoted = false;
+      } else {
+        for (const key of Object.keys(localStorage)) {
+          if (key.startsWith('livepoll_voted_')) localStorage.removeItem(key);
+        }
+        this.hasVoted = false;
+      }
+    },
+
+    async vote(value) {
+      try {
+        await LivePoll.api('vote', {
+          method: 'POST',
+          body: JSON.stringify({ roomCode: this.roomCode, questionId: this.currentQuestion.id, deviceId: this.deviceId, value }),
+        });
+        localStorage.setItem(`livepoll_voted_${this.currentQuestion.id}`, '1');
+        this.hasVoted = true;
+      } catch (err) {
+        if (err.status === 409) {
+          localStorage.setItem(`livepoll_voted_${this.currentQuestion.id}`, '1');
+          this.hasVoted = true;
+        } else {
+          alert(err.message);
+        }
+      }
+    },
+  };
+}
+</script>
+</body>
+</html>
