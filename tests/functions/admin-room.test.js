@@ -90,4 +90,14 @@ describe('admin-room function', () => {
     const body = JSON.parse(getRes.body);
     expect(body.room.current_question_id).toBeNull();
   });
+
+  it('returns 400 on malformed JSON in PATCH body', async () => {
+    const res = await handler({
+      httpMethod: 'PATCH',
+      body: '{invalid json}',
+    });
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.body)).toEqual({ error: 'Invalid JSON' });
+    expect(publishEvent).not.toHaveBeenCalled();
+  });
 });

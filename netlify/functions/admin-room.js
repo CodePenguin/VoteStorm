@@ -9,7 +9,12 @@ export async function handler(event) {
   await initSchema(db);
 
   const params = event.queryStringParameters || {};
-  const bodyData = event.body ? JSON.parse(event.body) : {};
+  let bodyData;
+  try {
+    bodyData = event.body ? JSON.parse(event.body) : {};
+  } catch {
+    return json(400, { error: 'Invalid JSON' });
+  }
   const adminKey = params.adminKey || bodyData.adminKey;
   if (!adminKey) return json(401, { error: 'Invalid admin key' });
 
