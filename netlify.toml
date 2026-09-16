@@ -1,0 +1,19 @@
+[build]
+  publish = "public"
+  functions = "netlify/functions"
+  command = "echo 'no build step'"
+
+[[redirects]]
+  from = "/admin/*"
+  to = "/admin/index.html"
+  status = 200
+
+[[redirects]]
+  from = "/vote/*"
+  to = "/vote/index.html"
+  status = 200
+
+[[redirects]]
+  from = "/results/*"
+  to = "/results/index.html"
+  status = 200

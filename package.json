@@ -1,0 +1,20 @@
+{
+  "name": "livepoll",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "dev": "netlify dev"
+  },
+  "dependencies": {
+    "@libsql/client": "^0.14.0",
+    "ably": "^2.3.1"
+  },
+  "devDependencies": {
+    "vitest": "^2.1.4",
+    "netlify-cli": "^17.38.0"
+  }
+}
