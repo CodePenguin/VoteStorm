@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>LivePoll Admin</title>
+<script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.3/dist/cdn.min.js"></script>
+<script src="https://cdn.ably.com/lib/ably.min-2.js"></script>
+<script src="/shared/api.js"></script>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 720px; margin: 2rem auto; padding: 0 1rem; }
+  .question { border: 1px solid #ccc; border-radius: 8px; padding: 1rem; margin-bottom: 1rem; }
+  .question.active { border-color: #2563eb; background: #eff6ff; }
+  .bar-row { display: flex; align-items: center; gap: .5rem; margin: .25rem 0; }
+  .bar-track { flex: 1; background: #e5e7eb; border-radius: 4px; height: 16px; overflow: hidden; }
+  .bar-fill { background: #2563eb; height: 100%; transition: width .3s ease; }
+  button { cursor: pointer; }
+</style>
+</head>
+<body x-data="adminApp()" x-init="init()">
+  <h1>LivePoll Admin</h1>
+
+  <template x-if="!adminKey">
+    <div>
+      <p>No room yet.</p>
+      <button @click="createRoom()">Create a new room</button>
+    </div>
+  </template>
+
+  <template x-if="adminKey && room">
+    <div>
+      <p>
+        Vote URL: <a :href="'/vote/' + room.room_code" x-text="'/vote/' + room.room_code" target="_blank"></a><br />
+        Results URL: <a :href="'/results/' + room.room_code" x-text="'/results/' + room.room_code" target="_blank"></a>
+      </p>
+      <button @click="resetRoom()">Reset all votes</button>
+      <button @click="closeRoom()" x-show="room.status !== 'closed'">Close room</button>
+
+      <h2>Questions</h2>
+      <button @click="showAddForm = !showAddForm">Add question</button>
+
+      <template x-if="showAddForm">
+        <div class="question">
+          <label>Type
+            <select x-model="newQuestion.type">
+              <option value="choice">Choice</option>
+              <option value="rating">Rating</option>
+            </select>
+          </label><br />
+          <label>Prompt <input type="text" x-model="newQuestion.prompt" /></label><br />
+          <template x-if="newQuestion.type === 'choice'">
+            <label>Options (comma separated) <input type="text" x-model="newQuestion.optionsText" /></label>
+          </template>
+          <template x-if="newQuestion.type === 'rating'">
+            <span>
+              <label>Min <input type="number" x-model.number="newQuestion.scaleMin" /></label>
+              <label>Max <input type="number" x-model.number="newQuestion.scaleMax" /></label>
+            </span>
+          </template>
+          <br />
+          <button @click="addQuestion()">Save question</button>
+        </div>
+      </template>
+
+      <template x-for="(q, index) in questions" :key="q.id">
+        <div class="question" :class="{ active: q.id === room.current_question_id }">
+          <strong x-text="q.prompt"></strong>
+          <div>
+            <button @click="moveUp(index)" x-show="index > 0">Up</button>
+            <button @click="moveDown(index)" x-show="index < questions.length - 1">Down</button>
+            <button @click="activate(q.id)" x-show="q.id !== room.current_question_id">Activate</button>
+            <button @click="resetQuestion(q.id)">Reset votes</button>
+            <button @click="deleteQuestion(q.id)">Delete</button>
+          </div>
+
+          <template x-if="q.type === 'choice'">
+            <div>
+              <template x-for="(opt, i) in JSON.parse(q.options)" :key="i">
+                <div class="bar-row">
+                  <span x-text="opt"></span>
+                  <div class="bar-track">
+                    <div class="bar-fill" :style="`width: ${pct(q, i)}%`"></div>
+                  </div>
+                  <span x-text="q.tally.counts[i] || 0"></span>
+                </div>
+              </template>
+            </div>
+          </template>
+
+          <template x-if="q.type === 'rating'">
+            <div>
+              <span>Average: <span x-text="q.tally.average ?? 'n/a'"></span></span>
+              <span> (<span x-text="q.tally.totalVotes"></span> responses)</span>
+            </div>
+          </template>
+        </div>
+      </template>
+    </div>
+  </template>
+
+<script>
+function adminApp() {
+  return {
+    adminKey: null,
+    room: null,
+    questions: [],
+    showAddForm: false,
+    newQuestion: { type: 'choice', prompt: '', optionsText: '', scaleMin: 1, scaleMax: 5 },
+
+    async init() {
+      const parts = window.location.pathname.split('/').filter(Boolean);
+      this.adminKey = parts.length > 1 ? parts[1] : null;
+      if (this.adminKey) {
+        await this.load();
+        LivePoll.subscribeRoom(this.room.room_code, {
+          tally: (data) => this.onTally(data),
+          state: () => this.load(),
+        });
+      }
+    },
+
+    async createRoom() {
+      const data = await LivePoll.api('create-room', { method: 'POST' });
+      window.location.href = `/admin/${data.adminKey}`;
+    },
+
+    async load() {
+      const data = await LivePoll.api(`admin-room?adminKey=${encodeURIComponent(this.adminKey)}`);
+      this.room = data.room;
+      this.questions = data.questions;
+    },
+
+    onTally(data) {
+      const q = this.questions.find((q) => q.id === data.questionId);
+      if (q) q.tally = data;
+    },
+
+    pct(q, i) {
+      const total = q.tally.totalVotes || 0;
+      if (!total) return 0;
+      return Math.round(((q.tally.counts[i] || 0) / total) * 100);
+    },
+
+    async addQuestion() {
+      const payload = {
+        adminKey: this.adminKey,
+        type: this.newQuestion.type,
+        prompt: this.newQuestion.prompt,
+      };
+      if (this.newQuestion.type === 'choice') {
+        payload.options = this.newQuestion.optionsText.split(',').map((s) => s.trim()).filter(Boolean);
+      } else {
+        payload.scaleMin = this.newQuestion.scaleMin;
+        payload.scaleMax = this.newQuestion.scaleMax;
+      }
+      await LivePoll.api('admin-questions', { method: 'POST', body: JSON.stringify(payload) });
+      this.showAddForm = false;
+      this.newQuestion = { type: 'choice', prompt: '', optionsText: '', scaleMin: 1, scaleMax: 5 };
+      await this.load();
+    },
+
+    async activate(questionId) {
+      await LivePoll.api('admin-room', {
+        method: 'PATCH',
+        body: JSON.stringify({ adminKey: this.adminKey, status: 'active', currentQuestionId: questionId }),
+      });
+      await this.load();
+    },
+
+    async resetQuestion(questionId) {
+      await LivePoll.api('admin-questions', {
+        method: 'PATCH',
+        body: JSON.stringify({ adminKey: this.adminKey, questionId, action: 'reset' }),
+      });
+      await this.load();
+    },
+
+    async resetRoom() {
+      await LivePoll.api('admin-room', {
+        method: 'PATCH',
+        body: JSON.stringify({ adminKey: this.adminKey, action: 'reset' }),
+      });
+      await this.load();
+    },
+
+    async closeRoom() {
+      await LivePoll.api('admin-room', {
+        method: 'PATCH',
+        body: JSON.stringify({ adminKey: this.adminKey, status: 'closed' }),
+      });
+      await this.load();
+    },
+
+    async deleteQuestion(questionId) {
+      await LivePoll.api('admin-questions', { method: 'DELETE', body: JSON.stringify({ adminKey: this.adminKey, questionId }) });
+      await this.load();
+    },
+
+    async moveUp(index) {
+      await this.swap(index, index - 1);
+    },
+    async moveDown(index) {
+      await this.swap(index, index + 1);
+    },
+    async swap(i, j) {
+      const a = this.questions[i];
+      const b = this.questions[j];
+      await LivePoll.api('admin-questions', {
+        method: 'PATCH',
+        body: JSON.stringify({ adminKey: this.adminKey, questionId: a.id, orderIndex: b.order_index }),
+      });
+      await LivePoll.api('admin-questions', {
+        method: 'PATCH',
+        body: JSON.stringify({ adminKey: this.adminKey, questionId: b.id, orderIndex: a.order_index }),
+      });
+      await this.load();
+    },
+  };
+}
+</script>
+</body>
+</html>
