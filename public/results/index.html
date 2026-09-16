@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>LivePoll Results</title>
+<script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.3/dist/cdn.min.js"></script>
+<script src="https://cdn.ably.com/lib/ably.min-2.js"></script>
+<script src="/shared/api.js"></script>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 900px; margin: 3rem auto; padding: 0 2rem; }
+  h1 { font-size: 2.5rem; text-align: center; }
+  .bar-row { display: flex; align-items: center; gap: 1rem; margin: 1rem 0; font-size: 1.5rem; }
+  .bar-label { width: 220px; text-align: right; }
+  .bar-track { flex: 1; background: #e5e7eb; border-radius: 8px; height: 36px; overflow: hidden; }
+  .bar-fill { background: #2563eb; height: 100%; transition: width .4s ease; }
+  .bar-count { width: 100px; }
+  .total { text-align: center; color: #666; margin-top: 2rem; }
+</style>
+</head>
+<body x-data="resultsApp()" x-init="init()">
+  <template x-if="!currentQuestion">
+    <h1>Waiting for the next question&hellip;</h1>
+  </template>
+
+  <template x-if="currentQuestion">
+    <div>
+      <h1 x-text="currentQuestion.prompt"></h1>
+
+      <template x-if="currentQuestion.type === 'choice'">
+        <div>
+          <template x-for="(opt, i) in currentQuestion.options" :key="i">
+            <div class="bar-row">
+              <div class="bar-label" x-text="opt"></div>
+              <div class="bar-track"><div class="bar-fill" :style="`width: ${pct(i)}%`"></div></div>
+              <div class="bar-count" x-text="(tally.counts[i] || 0) + ' (' + pct(i) + '%)'"></div>
+            </div>
+          </template>
+        </div>
+      </template>
+
+      <template x-if="currentQuestion.type === 'rating'">
+        <div>
+          <template x-for="n in (currentQuestion.scaleMax - currentQuestion.scaleMin + 1)" :key="n">
+            <div class="bar-row">
+              <div class="bar-label" x-text="currentQuestion.scaleMin + n - 1"></div>
+              <div class="bar-track"><div class="bar-fill" :style="`width: ${ratingPct(currentQuestion.scaleMin + n - 1)}%`"></div></div>
+              <div class="bar-count" x-text="tally.counts[currentQuestion.scaleMin + n - 1] || 0"></div>
+            </div>
+          </template>
+          <p>Average: <span x-text="tally.average ?? 'n/a'"></span></p>
+        </div>
+      </template>
+
+      <p class="total">Total responses: <span x-text="tally.totalVotes || 0"></span></p>
+    </div>
+  </template>
+
+<script>
+function resultsApp() {
+  return {
+    roomCode: null,
+    currentQuestion: null,
+    tally: { counts: [], totalVotes: 0 },
+
+    async init() {
+      const parts = window.location.pathname.split('/').filter(Boolean);
+      this.roomCode = parts.length > 1 ? parts[1] : null;
+      if (!this.roomCode) return;
+
+      const state = await LivePoll.api(`get-room-state?roomCode=${encodeURIComponent(this.roomCode)}`);
+      this.currentQuestion = state.currentQuestion;
+      this.tally = state.tally || { counts: [], totalVotes: 0 };
+
+      LivePoll.subscribeRoom(this.roomCode, {
+        state: (data) => {
+          this.currentQuestion = data.currentQuestion;
+          this.tally = data.initialTally || { counts: [], totalVotes: 0 };
+        },
+        tally: (data) => {
+          if (this.currentQuestion && data.questionId === this.currentQuestion.id) {
+            this.tally = data;
+          }
+        },
+      });
+    },
+
+    pct(i) {
+      const total = this.tally.totalVotes || 0;
+      if (!total) return 0;
+      return Math.round(((this.tally.counts[i] || 0) / total) * 100);
+    },
+
+    ratingPct(value) {
+      const total = this.tally.totalVotes || 0;
+      if (!total) return 0;
+      return Math.round(((this.tally.counts[value] || 0) / total) * 100);
+    },
+  };
+}
+</script>
+</body>
+</html>
