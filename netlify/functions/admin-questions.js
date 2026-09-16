@@ -9,7 +9,12 @@ export async function handler(event) {
   await initSchema(db);
 
   const params = event.queryStringParameters || {};
-  const bodyData = event.body ? JSON.parse(event.body) : {};
+  let bodyData;
+  try {
+    bodyData = event.body ? JSON.parse(event.body) : {};
+  } catch {
+    return json(400, { error: 'Invalid JSON' });
+  }
   const adminKey = params.adminKey || bodyData.adminKey;
   if (!adminKey) return json(401, { error: 'Invalid admin key' });
 
@@ -51,10 +56,15 @@ export async function handler(event) {
   if (event.httpMethod === 'PATCH') {
     const { questionId, action } = bodyData;
 
+    const ownedResult = await db.execute({
+      sql: 'SELECT * FROM questions WHERE id = ? AND room_code = ?',
+      args: [questionId, room.room_code],
+    });
+    const question = ownedResult.rows[0];
+    if (!question) return json(404, { error: 'Question not found' });
+
     if (action === 'reset') {
       await db.execute({ sql: 'DELETE FROM votes WHERE question_id = ?', args: [questionId] });
-      const questionResult = await db.execute({ sql: 'SELECT * FROM questions WHERE id = ?', args: [questionId] });
-      const question = questionResult.rows[0];
       const tally = computeTally(question, []);
       await publishEvent(room.room_code, 'tally', { questionId, ...tally });
       await publishEvent(room.room_code, 'reset', { questionId });
@@ -77,15 +87,22 @@ export async function handler(event) {
       }
     }
     if (fields.length === 0) return json(400, { error: 'No fields to update' });
-    args.push(questionId);
-    await db.execute({ sql: `UPDATE questions SET ${fields.join(', ')} WHERE id = ?`, args });
+    args.push(questionId, room.room_code);
+    await db.execute({ sql: `UPDATE questions SET ${fields.join(', ')} WHERE id = ? AND room_code = ?`, args });
     return json(200, { ok: true });
   }
 
   if (event.httpMethod === 'DELETE') {
     const { questionId } = bodyData;
+
+    const ownedResult = await db.execute({
+      sql: 'SELECT * FROM questions WHERE id = ? AND room_code = ?',
+      args: [questionId, room.room_code],
+    });
+    if (!ownedResult.rows[0]) return json(404, { error: 'Question not found' });
+
     await db.execute({ sql: 'DELETE FROM votes WHERE question_id = ?', args: [questionId] });
-    await db.execute({ sql: 'DELETE FROM questions WHERE id = ?', args: [questionId] });
+    await db.execute({ sql: 'DELETE FROM questions WHERE id = ? AND room_code = ?', args: [questionId, room.room_code] });
     if (Number(room.current_question_id) === Number(questionId)) {
       await db.execute({ sql: 'UPDATE rooms SET current_question_id = NULL WHERE room_code = ?', args: [room.room_code] });
       await publishEvent(room.room_code, 'state', { status: room.status, currentQuestion: null, initialTally: null });
