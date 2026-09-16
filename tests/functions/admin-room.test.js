@@ -55,6 +55,37 @@ describe('admin-room function', () => {
     });
     expect(res.statusCode).toBe(200);
     expect(publishEvent).toHaveBeenCalledWith(roomCode, 'state', expect.objectContaining({ status: 'active' }));
+
+    const publishedPayload = publishEvent.mock.calls[0][2];
+    // currentQuestion must be shaped like get-room-state.js's output, not the
+    // raw DB row: options parsed into an array (not a JSON string), and
+    // camelCase scale fields (not snake_case scale_min/scale_max).
+    expect(Array.isArray(publishedPayload.currentQuestion.options)).toBe(true);
+    expect(publishedPayload.currentQuestion.options).toEqual(['A', 'B']);
+    expect(publishedPayload.currentQuestion).not.toHaveProperty('scale_min');
+    expect(publishedPayload.currentQuestion).not.toHaveProperty('scale_max');
+  });
+
+  it('publishes camelCase scaleMin/scaleMax for a rating question', async () => {
+    const createRes = await questionsHandler({
+      httpMethod: 'POST',
+      body: JSON.stringify({ adminKey, type: 'rating', prompt: 'Rate it', scaleMin: 1, scaleMax: 10 }),
+    });
+    const ratingQuestionId = JSON.parse(createRes.body).id;
+    vi.clearAllMocks();
+
+    const res = await handler({
+      httpMethod: 'PATCH',
+      body: JSON.stringify({ adminKey, currentQuestionId: ratingQuestionId }),
+    });
+    expect(res.statusCode).toBe(200);
+
+    const publishedPayload = publishEvent.mock.calls[0][2];
+    expect(publishedPayload.currentQuestion.scaleMin).toBe(1);
+    expect(publishedPayload.currentQuestion.scaleMax).toBe(10);
+    expect(publishedPayload.currentQuestion).not.toHaveProperty('scale_min');
+    expect(publishedPayload.currentQuestion).not.toHaveProperty('scale_max');
+    expect(publishedPayload.currentQuestion.options).toBeNull();
   });
 
   it('deletes the room and its questions', async () => {

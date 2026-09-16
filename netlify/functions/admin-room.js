@@ -91,9 +91,20 @@ export async function handler(event) {
         currentQuestion = questionResult.rows[0] || null;
         if (currentQuestion) initialTally = computeTally(currentQuestion, []);
       }
+      const shapedCurrentQuestion = currentQuestion
+        ? {
+            id: currentQuestion.id,
+            type: currentQuestion.type,
+            prompt: currentQuestion.prompt,
+            options: currentQuestion.options ? JSON.parse(currentQuestion.options) : null,
+            scaleMin: currentQuestion.scale_min,
+            scaleMax: currentQuestion.scale_max,
+          }
+        : null;
+
       await publishEvent(room.room_code, 'state', {
         status: bodyData.status ?? room.status,
-        currentQuestion,
+        currentQuestion: shapedCurrentQuestion,
         initialTally,
       });
     }
