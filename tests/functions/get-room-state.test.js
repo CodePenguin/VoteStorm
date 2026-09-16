@@ -1,0 +1,48 @@
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { createDb, initSchema } from '../../lib/db.js';
+import { generateAdminKey, hashAdminKey, deriveRoomCode } from '../../lib/roomCode.js';
+import { handler } from '../../netlify/functions/get-room-state.js';
+
+describe('get-room-state function', () => {
+  let roomCode;
+
+  beforeEach(async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'livepoll-test-'));
+    process.env.TURSO_DATABASE_URL = `file:${path.join(dir, 'test.db')}`;
+    const db = createDb();
+    await initSchema(db);
+    const adminKey = generateAdminKey();
+    roomCode = deriveRoomCode(adminKey);
+    await db.execute({
+      sql: `INSERT INTO rooms (admin_key_hash, room_code, status, current_question_id, created_at) VALUES (?, ?, 'active', 1, ?)`,
+      args: [hashAdminKey(adminKey), roomCode, Date.now()],
+    });
+    await db.execute({
+      sql: `INSERT INTO questions (id, room_code, order_index, type, prompt, options, created_at) VALUES (1, ?, 0, 'choice', 'Pick one', ?, ?)`,
+      args: [roomCode, JSON.stringify(['A', 'B']), Date.now()],
+    });
+    await db.execute({
+      sql: 'INSERT INTO votes (question_id, device_id, value, created_at) VALUES (1, ?, ?, ?)',
+      args: ['dev-1', '0', Date.now()],
+    });
+  });
+
+  afterEach(() => {
+    delete process.env.TURSO_DATABASE_URL;
+  });
+
+  it('returns the current question and tally', async () => {
+    const res = await handler({ httpMethod: 'GET', queryStringParameters: { roomCode } });
+    const body = JSON.parse(res.body);
+    expect(body.currentQuestion.prompt).toBe('Pick one');
+    expect(body.tally.counts).toEqual([1, 0]);
+  });
+
+  it('404s for an unknown room', async () => {
+    const res = await handler({ httpMethod: 'GET', queryStringParameters: { roomCode: 'NOPE00' } });
+    expect(res.statusCode).toBe(404);
+  });
+});
