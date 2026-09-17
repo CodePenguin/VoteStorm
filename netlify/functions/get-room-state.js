@@ -1,4 +1,4 @@
-import { createDb, getRoomByCode } from '../../lib/db.js';
+import { createDb, initSchema, getRoomByCode } from '../../lib/db.js';
 import { computeTally } from '../../lib/tally.js';
 import { json } from '../../lib/http.js';
 
@@ -12,6 +12,7 @@ export async function handler(event) {
   }
 
   const db = createDb();
+  await initSchema(db);
   const room = await getRoomByCode(db, roomCode);
   if (!room) {
     return json(404, { error: 'Room not found' });

@@ -80,16 +80,25 @@ export async function handler(event) {
       await db.execute({ sql: `UPDATE rooms SET ${fields.join(', ')} WHERE room_code = ?`, args });
     }
 
-    if (bodyData.currentQuestionId !== undefined) {
+    if (bodyData.currentQuestionId !== undefined || bodyData.status !== undefined) {
+      // When only `status` changes (e.g. closing the room), currentQuestionId
+      // wasn't provided in the body, so re-derive it from the room's existing
+      // current_question_id so clients still get a complete picture.
+      const effectiveQuestionId =
+        bodyData.currentQuestionId !== undefined ? bodyData.currentQuestionId : room.current_question_id;
+
       let currentQuestion = null;
       let initialTally = null;
-      if (bodyData.currentQuestionId) {
+      if (effectiveQuestionId) {
         const questionResult = await db.execute({
           sql: 'SELECT * FROM questions WHERE id = ? AND room_code = ?',
-          args: [bodyData.currentQuestionId, room.room_code],
+          args: [effectiveQuestionId, room.room_code],
         });
         currentQuestion = questionResult.rows[0] || null;
-        if (currentQuestion) initialTally = computeTally(currentQuestion, []);
+        if (currentQuestion) {
+          const votesResult = await db.execute({ sql: 'SELECT * FROM votes WHERE question_id = ?', args: [currentQuestion.id] });
+          initialTally = computeTally(currentQuestion, votesResult.rows);
+        }
       }
       const shapedCurrentQuestion = currentQuestion
         ? {

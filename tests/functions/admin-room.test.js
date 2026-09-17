@@ -122,6 +122,57 @@ describe('admin-room function', () => {
     expect(body.room.current_question_id).toBeNull();
   });
 
+  it('publishes the real tally (not zeroed) when activating a question that already has votes', async () => {
+    // Activate the question once, then record a vote directly against it,
+    // then "re-activate" it (e.g. presenter clicking Activate again after a
+    // partial reset). The republished state event must reflect the real
+    // vote count, not an empty tally.
+    const db = createDb();
+    await handler({
+      httpMethod: 'PATCH',
+      body: JSON.stringify({ adminKey, status: 'active', currentQuestionId: questionId }),
+    });
+    await db.execute({
+      sql: 'INSERT INTO votes (question_id, device_id, value, created_at) VALUES (?, ?, ?, ?)',
+      args: [questionId, 'dev-x', '0', Date.now()],
+    });
+    vi.clearAllMocks();
+
+    const res = await handler({
+      httpMethod: 'PATCH',
+      body: JSON.stringify({ adminKey, status: 'active', currentQuestionId: questionId }),
+    });
+    expect(res.statusCode).toBe(200);
+
+    const publishedPayload = publishEvent.mock.calls[0][2];
+    expect(publishedPayload.initialTally.totalVotes).toBe(1);
+    expect(publishedPayload.initialTally.counts).toEqual([1, 0]);
+  });
+
+  it('publishes a state event on a status-only change (closing the room) with no currentQuestionId in the body', async () => {
+    // First activate a question so the room has a current_question_id set.
+    await handler({
+      httpMethod: 'PATCH',
+      body: JSON.stringify({ adminKey, status: 'active', currentQuestionId: questionId }),
+    });
+    vi.clearAllMocks();
+
+    const res = await handler({
+      httpMethod: 'PATCH',
+      body: JSON.stringify({ adminKey, status: 'closed' }),
+    });
+    expect(res.statusCode).toBe(200);
+    expect(publishEvent).toHaveBeenCalledWith(roomCode, 'state', expect.objectContaining({ status: 'closed' }));
+
+    const publishedPayload = publishEvent.mock.calls[0][2];
+    // currentQuestion/initialTally should still be present, re-derived from
+    // the room's existing current_question_id, even though the PATCH body
+    // didn't include currentQuestionId.
+    expect(publishedPayload.currentQuestion).not.toBeNull();
+    expect(publishedPayload.currentQuestion.id).toBe(questionId);
+    expect(publishedPayload.initialTally).not.toBeNull();
+  });
+
   it('returns 400 on malformed JSON in PATCH body', async () => {
     const res = await handler({
       httpMethod: 'PATCH',
