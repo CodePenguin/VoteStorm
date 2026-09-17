@@ -20,6 +20,10 @@
 <body x-data="adminApp()" x-init="init()">
   <h1>LivePoll Admin</h1>
 
+  <template x-if="error">
+    <p style="color: #b91c1c;">Couldn't load this room: <span x-text="error"></span></p>
+  </template>
+
   <template x-if="!adminKey">
     <div>
       <p>No room yet.</p>
@@ -105,29 +109,47 @@ function adminApp() {
     room: null,
     questions: [],
     showAddForm: false,
+    error: null,
     newQuestion: { type: 'choice', prompt: '', optionsText: '', scaleMin: 1, scaleMax: 5 },
 
     async init() {
       const parts = window.location.pathname.split('/').filter(Boolean);
       this.adminKey = parts.length > 1 ? parts[1] : null;
       if (this.adminKey) {
-        await this.load();
-        LivePoll.subscribeRoom(this.room.room_code, {
-          tally: (data) => this.onTally(data),
-          state: () => this.load(),
-        });
+        try {
+          await this.load();
+          LivePoll.subscribeRoom(this.room.room_code, {
+            tally: (data) => this.onTally(data),
+            state: () => this.safeLoad(),
+          });
+        } catch (err) {
+          this.error = (err && err.message) || 'Something went wrong';
+        }
       }
     },
 
     async createRoom() {
-      const data = await LivePoll.api('create-room', { method: 'POST' });
-      window.location.href = `/admin/${data.adminKey}`;
+      try {
+        const data = await LivePoll.api('create-room', { method: 'POST' });
+        window.location.href = `/admin/${data.adminKey}`;
+      } catch (err) {
+        this.error = (err && err.message) || 'Something went wrong';
+      }
     },
 
     async load() {
       const data = await LivePoll.api(`admin-room?adminKey=${encodeURIComponent(this.adminKey)}`);
       this.room = data.room;
       this.questions = data.questions;
+    },
+
+    async safeLoad() {
+      try {
+        await this.load();
+        this.error = null;
+      } catch (err) {
+        this.error = (err && err.message) || 'Something went wrong';
+      }
     },
 
     onTally(data) {
@@ -142,58 +164,88 @@ function adminApp() {
     },
 
     async addQuestion() {
-      const payload = {
-        adminKey: this.adminKey,
-        type: this.newQuestion.type,
-        prompt: this.newQuestion.prompt,
-      };
-      if (this.newQuestion.type === 'choice') {
-        payload.options = this.newQuestion.optionsText.split(',').map((s) => s.trim()).filter(Boolean);
-      } else {
-        payload.scaleMin = this.newQuestion.scaleMin;
-        payload.scaleMax = this.newQuestion.scaleMax;
+      try {
+        const payload = {
+          adminKey: this.adminKey,
+          type: this.newQuestion.type,
+          prompt: this.newQuestion.prompt,
+        };
+        if (this.newQuestion.type === 'choice') {
+          payload.options = this.newQuestion.optionsText.split(',').map((s) => s.trim()).filter(Boolean);
+        } else {
+          payload.scaleMin = this.newQuestion.scaleMin;
+          payload.scaleMax = this.newQuestion.scaleMax;
+        }
+        await LivePoll.api('admin-questions', { method: 'POST', body: JSON.stringify(payload) });
+        this.showAddForm = false;
+        this.newQuestion = { type: 'choice', prompt: '', optionsText: '', scaleMin: 1, scaleMax: 5 };
+        await this.load();
+        this.error = null;
+      } catch (err) {
+        this.error = (err && err.message) || 'Something went wrong';
       }
-      await LivePoll.api('admin-questions', { method: 'POST', body: JSON.stringify(payload) });
-      this.showAddForm = false;
-      this.newQuestion = { type: 'choice', prompt: '', optionsText: '', scaleMin: 1, scaleMax: 5 };
-      await this.load();
     },
 
     async activate(questionId) {
-      await LivePoll.api('admin-room', {
-        method: 'PATCH',
-        body: JSON.stringify({ adminKey: this.adminKey, status: 'active', currentQuestionId: questionId }),
-      });
-      await this.load();
+      try {
+        await LivePoll.api('admin-room', {
+          method: 'PATCH',
+          body: JSON.stringify({ adminKey: this.adminKey, status: 'active', currentQuestionId: questionId }),
+        });
+        await this.load();
+        this.error = null;
+      } catch (err) {
+        this.error = (err && err.message) || 'Something went wrong';
+      }
     },
 
     async resetQuestion(questionId) {
-      await LivePoll.api('admin-questions', {
-        method: 'PATCH',
-        body: JSON.stringify({ adminKey: this.adminKey, questionId, action: 'reset' }),
-      });
-      await this.load();
+      try {
+        await LivePoll.api('admin-questions', {
+          method: 'PATCH',
+          body: JSON.stringify({ adminKey: this.adminKey, questionId, action: 'reset' }),
+        });
+        await this.load();
+        this.error = null;
+      } catch (err) {
+        this.error = (err && err.message) || 'Something went wrong';
+      }
     },
 
     async resetRoom() {
-      await LivePoll.api('admin-room', {
-        method: 'PATCH',
-        body: JSON.stringify({ adminKey: this.adminKey, action: 'reset' }),
-      });
-      await this.load();
+      try {
+        await LivePoll.api('admin-room', {
+          method: 'PATCH',
+          body: JSON.stringify({ adminKey: this.adminKey, action: 'reset' }),
+        });
+        await this.load();
+        this.error = null;
+      } catch (err) {
+        this.error = (err && err.message) || 'Something went wrong';
+      }
     },
 
     async closeRoom() {
-      await LivePoll.api('admin-room', {
-        method: 'PATCH',
-        body: JSON.stringify({ adminKey: this.adminKey, status: 'closed' }),
-      });
-      await this.load();
+      try {
+        await LivePoll.api('admin-room', {
+          method: 'PATCH',
+          body: JSON.stringify({ adminKey: this.adminKey, status: 'closed' }),
+        });
+        await this.load();
+        this.error = null;
+      } catch (err) {
+        this.error = (err && err.message) || 'Something went wrong';
+      }
     },
 
     async deleteQuestion(questionId) {
-      await LivePoll.api('admin-questions', { method: 'DELETE', body: JSON.stringify({ adminKey: this.adminKey, questionId }) });
-      await this.load();
+      try {
+        await LivePoll.api('admin-questions', { method: 'DELETE', body: JSON.stringify({ adminKey: this.adminKey, questionId }) });
+        await this.load();
+        this.error = null;
+      } catch (err) {
+        this.error = (err && err.message) || 'Something went wrong';
+      }
     },
 
     async moveUp(index) {
@@ -203,17 +255,22 @@ function adminApp() {
       await this.swap(index, index + 1);
     },
     async swap(i, j) {
-      const a = this.questions[i];
-      const b = this.questions[j];
-      await LivePoll.api('admin-questions', {
-        method: 'PATCH',
-        body: JSON.stringify({ adminKey: this.adminKey, questionId: a.id, orderIndex: b.order_index }),
-      });
-      await LivePoll.api('admin-questions', {
-        method: 'PATCH',
-        body: JSON.stringify({ adminKey: this.adminKey, questionId: b.id, orderIndex: a.order_index }),
-      });
-      await this.load();
+      try {
+        const a = this.questions[i];
+        const b = this.questions[j];
+        await LivePoll.api('admin-questions', {
+          method: 'PATCH',
+          body: JSON.stringify({ adminKey: this.adminKey, questionId: a.id, orderIndex: b.order_index }),
+        });
+        await LivePoll.api('admin-questions', {
+          method: 'PATCH',
+          body: JSON.stringify({ adminKey: this.adminKey, questionId: b.id, orderIndex: a.order_index }),
+        });
+        await this.load();
+        this.error = null;
+      } catch (err) {
+        this.error = (err && err.message) || 'Something went wrong';
+      }
     },
   };
 }

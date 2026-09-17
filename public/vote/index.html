@@ -21,15 +21,19 @@
     <p>No room specified.</p>
   </template>
 
-  <template x-if="roomCode && !currentQuestion">
+  <template x-if="roomCode && roomClosed">
+    <p>This room is closed.</p>
+  </template>
+
+  <template x-if="roomCode && !roomClosed && !currentQuestion">
     <p>Waiting for the next question&hellip;</p>
   </template>
 
-  <template x-if="currentQuestion && hasVoted">
+  <template x-if="!roomClosed && currentQuestion && hasVoted">
     <p>Thanks! Waiting for the next question&hellip;</p>
   </template>
 
-  <template x-if="currentQuestion && !hasVoted">
+  <template x-if="!roomClosed && currentQuestion && !hasVoted">
     <div>
       <h2 x-text="currentQuestion.prompt"></h2>
 
@@ -58,6 +62,7 @@ function voteApp() {
     deviceId: null,
     currentQuestion: null,
     hasVoted: false,
+    roomClosed: false,
 
     async init() {
       const parts = window.location.pathname.split('/').filter(Boolean);
@@ -66,10 +71,14 @@ function voteApp() {
       this.deviceId = LivePoll.getDeviceId();
 
       const state = await LivePoll.api(`get-room-state?roomCode=${encodeURIComponent(this.roomCode)}`);
+      this.roomClosed = state.status === 'closed';
       this.applyState(state.currentQuestion);
 
       LivePoll.subscribeRoom(this.roomCode, {
-        state: (data) => this.applyState(data.currentQuestion),
+        state: (data) => {
+          this.roomClosed = data.status === 'closed';
+          this.applyState(data.currentQuestion);
+        },
         reset: (data) => this.onReset(data),
       });
     },
