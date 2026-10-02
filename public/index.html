@@ -4,14 +4,37 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>LivePoll</title>
+<script src="/shared/api.js"></script>
 <style>
   body { font-family: system-ui, sans-serif; max-width: 480px; margin: 4rem auto; padding: 0 1rem; text-align: center; }
-  a.button { display: inline-block; padding: .75rem 1.5rem; background: #2563eb; color: white; border-radius: 8px; text-decoration: none; margin-top: 1rem; }
+  button.button { display: inline-block; padding: .75rem 1.5rem; background: #2563eb; color: white; border: none; border-radius: 8px; font-size: 1rem; cursor: pointer; margin-top: 1rem; }
+  button.button:disabled { background: #93c5fd; cursor: default; }
+  p.error { color: #b91c1c; }
 </style>
 </head>
 <body>
   <h1>LivePoll</h1>
   <p>Live polling for events. Create a room, add questions, and share the link with your audience.</p>
-  <a class="button" href="/admin/">Create a room</a>
+  <button class="button" id="create-room-btn">Create a room</button>
+  <p class="error" id="create-room-error" hidden></p>
+
+<script>
+  const btn = document.getElementById('create-room-btn');
+  const errorEl = document.getElementById('create-room-error');
+  btn.addEventListener('click', async () => {
+    btn.disabled = true;
+    btn.textContent = 'Creating…';
+    errorEl.hidden = true;
+    try {
+      const data = await LivePoll.api('create-room', { method: 'POST' });
+      window.location.href = `/admin/${data.adminKey}`;
+    } catch (err) {
+      errorEl.textContent = (err && err.message) || 'Something went wrong';
+      errorEl.hidden = false;
+      btn.disabled = false;
+      btn.textContent = 'Create a room';
+    }
+  });
+</script>
 </body>
 </html>
