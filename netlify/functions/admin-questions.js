@@ -1,4 +1,4 @@
-import { createDb, initSchema, getRoomByAdminKeyHash } from '../../lib/db.js';
+import { createDb, initSchema, getRoomByAdminKeyHash, touchRoomActivity } from '../../lib/db.js';
 import { hashAdminKey } from '../../lib/roomCode.js';
 import { computeTally } from '../../lib/tally.js';
 import { publishEvent } from '../../lib/realtime.js';
@@ -20,6 +20,10 @@ export async function handler(event) {
 
   const room = await getRoomByAdminKeyHash(db, hashAdminKey(adminKey));
   if (!room) return json(401, { error: 'Invalid admin key' });
+
+  if (event.httpMethod !== 'GET') {
+    await touchRoomActivity(db, room.room_code);
+  }
 
   if (event.httpMethod === 'GET') {
     const result = await db.execute({

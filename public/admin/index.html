@@ -39,6 +39,7 @@
       </p>
       <button @click="resetRoom()">Reset all votes</button>
       <button @click="closeRoom()" x-show="room.status !== 'closed'">Close room</button>
+      <button @click="deleteRoom()">Delete room</button>
 
       <h2>Questions</h2>
       <button @click="showAddForm = !showAddForm">Add question</button>
@@ -233,6 +234,16 @@ function adminApp() {
         });
         await this.load();
         this.error = null;
+      } catch (err) {
+        this.error = (err && err.message) || 'Something went wrong';
+      }
+    },
+
+    async deleteRoom() {
+      if (!confirm('Delete this room? This cannot be undone.')) return;
+      try {
+        await LivePoll.api('admin-room', { method: 'DELETE', body: JSON.stringify({ adminKey: this.adminKey }) });
+        window.location.href = '/admin/';
       } catch (err) {
         this.error = (err && err.message) || 'Something went wrong';
       }

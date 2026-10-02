@@ -8,7 +8,7 @@ vi.mock('../../lib/realtime.js', () => ({
   createTokenRequest: vi.fn(),
 }));
 
-import { createDb, initSchema } from '../../lib/db.js';
+import { createDb, initSchema, getRoomByCode, todayDateString } from '../../lib/db.js';
 import { generateAdminKey, hashAdminKey, deriveRoomCode } from '../../lib/roomCode.js';
 import { handler } from '../../netlify/functions/admin-questions.js';
 import { publishEvent } from '../../lib/realtime.js';
@@ -199,5 +199,54 @@ describe('admin-questions function', () => {
     const { questions } = JSON.parse(listRes.body);
     expect(questions).toHaveLength(1);
     expect(questions[0].prompt).toBe('Room A question');
+  });
+
+  it('bumps last_activity_date to today on POST (create question)', async () => {
+    const roomCode = deriveRoomCode(adminKey);
+    const db = createDb();
+    await db.execute({ sql: 'UPDATE rooms SET last_activity_date = ? WHERE room_code = ?', args: ['2000-01-01', roomCode] });
+
+    await handler({
+      httpMethod: 'POST',
+      body: JSON.stringify({ adminKey, type: 'choice', prompt: 'Pick one', options: ['A', 'B'] }),
+    });
+
+    const room = await getRoomByCode(db, roomCode);
+    expect(room.last_activity_date).toBe(todayDateString());
+  });
+
+  it('bumps last_activity_date to today on PATCH (edit question)', async () => {
+    const roomCode = deriveRoomCode(adminKey);
+    const db = createDb();
+    const createRes = await handler({
+      httpMethod: 'POST',
+      body: JSON.stringify({ adminKey, type: 'choice', prompt: 'Pick one', options: ['A', 'B'] }),
+    });
+    const { id } = JSON.parse(createRes.body);
+    await db.execute({ sql: 'UPDATE rooms SET last_activity_date = ? WHERE room_code = ?', args: ['2000-01-01', roomCode] });
+
+    await handler({
+      httpMethod: 'PATCH',
+      body: JSON.stringify({ adminKey, questionId: id, prompt: 'Updated prompt' }),
+    });
+
+    const room = await getRoomByCode(db, roomCode);
+    expect(room.last_activity_date).toBe(todayDateString());
+  });
+
+  it('bumps last_activity_date to today on DELETE (remove question)', async () => {
+    const roomCode = deriveRoomCode(adminKey);
+    const db = createDb();
+    const createRes = await handler({
+      httpMethod: 'POST',
+      body: JSON.stringify({ adminKey, type: 'choice', prompt: 'Pick one', options: ['A', 'B'] }),
+    });
+    const { id } = JSON.parse(createRes.body);
+    await db.execute({ sql: 'UPDATE rooms SET last_activity_date = ? WHERE room_code = ?', args: ['2000-01-01', roomCode] });
+
+    await handler({ httpMethod: 'DELETE', body: JSON.stringify({ adminKey, questionId: id }) });
+
+    const room = await getRoomByCode(db, roomCode);
+    expect(room.last_activity_date).toBe(todayDateString());
   });
 });

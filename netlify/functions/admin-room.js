@@ -1,4 +1,4 @@
-import { createDb, initSchema, getRoomByAdminKeyHash } from '../../lib/db.js';
+import { createDb, initSchema, getRoomByAdminKeyHash, touchRoomActivity, deleteRoomCascade } from '../../lib/db.js';
 import { hashAdminKey } from '../../lib/roomCode.js';
 import { computeTally } from '../../lib/tally.js';
 import { publishEvent } from '../../lib/realtime.js';
@@ -35,6 +35,8 @@ export async function handler(event) {
   }
 
   if (event.httpMethod === 'PATCH') {
+    await touchRoomActivity(db, room.room_code);
+
     if (bodyData.action === 'reset') {
       const questionsResult = await db.execute({ sql: 'SELECT id FROM questions WHERE room_code = ?', args: [room.room_code] });
       for (const q of questionsResult.rows) {
@@ -122,12 +124,7 @@ export async function handler(event) {
   }
 
   if (event.httpMethod === 'DELETE') {
-    const questionsResult = await db.execute({ sql: 'SELECT id FROM questions WHERE room_code = ?', args: [room.room_code] });
-    for (const q of questionsResult.rows) {
-      await db.execute({ sql: 'DELETE FROM votes WHERE question_id = ?', args: [q.id] });
-    }
-    await db.execute({ sql: 'DELETE FROM questions WHERE room_code = ?', args: [room.room_code] });
-    await db.execute({ sql: 'DELETE FROM rooms WHERE room_code = ?', args: [room.room_code] });
+    await deleteRoomCascade(db, room.room_code);
     return json(200, { ok: true });
   }
 

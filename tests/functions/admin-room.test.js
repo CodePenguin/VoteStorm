@@ -9,7 +9,7 @@ vi.mock('../../lib/realtime.js', () => ({
 }));
 
 import { publishEvent } from '../../lib/realtime.js';
-import { createDb, initSchema } from '../../lib/db.js';
+import { createDb, initSchema, getRoomByCode, todayDateString } from '../../lib/db.js';
 import { generateAdminKey, hashAdminKey, deriveRoomCode } from '../../lib/roomCode.js';
 import { handler as questionsHandler } from '../../netlify/functions/admin-questions.js';
 import { handler } from '../../netlify/functions/admin-room.js';
@@ -86,6 +86,29 @@ describe('admin-room function', () => {
     expect(publishedPayload.currentQuestion).not.toHaveProperty('scale_min');
     expect(publishedPayload.currentQuestion).not.toHaveProperty('scale_max');
     expect(publishedPayload.currentQuestion.options).toBeNull();
+  });
+
+  it('bumps last_activity_date to today on PATCH (activate)', async () => {
+    const db = createDb();
+    await db.execute({ sql: 'UPDATE rooms SET last_activity_date = ? WHERE room_code = ?', args: ['2000-01-01', roomCode] });
+
+    await handler({
+      httpMethod: 'PATCH',
+      body: JSON.stringify({ adminKey, status: 'active', currentQuestionId: questionId }),
+    });
+
+    const room = await getRoomByCode(db, roomCode);
+    expect(room.last_activity_date).toBe(todayDateString());
+  });
+
+  it('bumps last_activity_date to today on PATCH (reset action)', async () => {
+    const db = createDb();
+    await db.execute({ sql: 'UPDATE rooms SET last_activity_date = ? WHERE room_code = ?', args: ['2000-01-01', roomCode] });
+
+    await handler({ httpMethod: 'PATCH', body: JSON.stringify({ adminKey, action: 'reset' }) });
+
+    const room = await getRoomByCode(db, roomCode);
+    expect(room.last_activity_date).toBe(todayDateString());
   });
 
   it('deletes the room and its questions', async () => {
