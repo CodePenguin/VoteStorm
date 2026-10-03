@@ -1,20 +1,8 @@
 import { createDb, initSchema, getRoomByCode } from '../../lib/db.js';
 import { computeTally } from '../../lib/tally.js';
 import { publishEvent } from '../../lib/realtime.js';
+import { publicTally } from '../../lib/question.js';
 import { json } from '../../lib/http.js';
-
-// libSQL surfaces a UNIQUE constraint violation as a LibsqlError whose
-// `code` starts with SQLITE_CONSTRAINT (e.g. SQLITE_CONSTRAINT_UNIQUE) on the
-// local sqlite3 driver, and whose `message` still names the constraint on
-// the remote hrana/http drivers. Check both so we only treat an actual
-// duplicate-vote conflict as a 409, and let any other error (transient DB
-// failure, etc.) propagate.
-function isUniqueConstraintError(error) {
-  if (!error) return false;
-  if (typeof error.code === 'string' && error.code.startsWith('SQLITE_CONSTRAINT')) return true;
-  if (typeof error.message === 'string' && /unique constraint/i.test(error.message)) return true;
-  return false;
-}
 
 export async function handler(event) {
   if (event.httpMethod !== 'POST') {
@@ -49,7 +37,15 @@ export async function handler(event) {
   if (!question) return json(404, { error: 'Question not found' });
 
   const numericValue = Number(value);
-  if (question.type === 'choice') {
+  let storedValue = String(value);
+  if (question.type === 'choice' && question.multi) {
+    const options = JSON.parse(question.options);
+    const picks = Array.isArray(value) ? value.map(Number) : null;
+    if (!picks || picks.length === 0 || !picks.every((n) => Number.isInteger(n) && n >= 0 && n < options.length)) {
+      return json(400, { error: 'Invalid vote value' });
+    }
+    storedValue = JSON.stringify([...new Set(picks)].sort((a, b) => a - b));
+  } else if (question.type === 'choice') {
     const options = JSON.parse(question.options);
     if (!Number.isInteger(numericValue) || numericValue < 0 || numericValue >= options.length) {
       return json(400, { error: 'Invalid vote value' });
@@ -60,17 +56,12 @@ export async function handler(event) {
     }
   }
 
-  try {
-    await db.execute({
-      sql: 'INSERT INTO votes (question_id, device_id, value, created_at) VALUES (?, ?, ?, ?)',
-      args: [questionId, deviceId, String(value), Date.now()],
-    });
-  } catch (error) {
-    if (isUniqueConstraintError(error)) {
-      return json(409, { error: 'Already voted on this question', code: 'already_voted' });
-    }
-    throw error;
-  }
+  // A device may change its answer while the question is live: one row per device, replaced on resubmit.
+  await db.execute({
+    sql: `INSERT INTO votes (question_id, device_id, value, created_at) VALUES (?, ?, ?, ?)
+          ON CONFLICT(question_id, device_id) DO UPDATE SET value = excluded.value, created_at = excluded.created_at`,
+    args: [questionId, deviceId, storedValue, Date.now()],
+  });
 
   const votesResult = await db.execute({
     sql: 'SELECT * FROM votes WHERE question_id = ?',
@@ -78,7 +69,8 @@ export async function handler(event) {
   });
   const tally = computeTally(question, votesResult.rows);
 
-  await publishEvent(roomCode, 'tally', { questionId, ...tally });
+  const shown = publicTally(question, tally);
+  await publishEvent(roomCode, 'tally', { questionId, ...shown });
 
-  return json(200, { ok: true, tally });
+  return json(200, { ok: true, tally: shown });
 }

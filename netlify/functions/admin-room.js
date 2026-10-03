@@ -1,7 +1,8 @@
-import { createDb, initSchema, getRoomByAdminKeyHash, touchRoomActivity, deleteRoomCascade } from '../../lib/db.js';
-import { hashAdminKey } from '../../lib/roomCode.js';
+import { createDb, initSchema, getRoomByAdminKeyHash, touchRoomActivity, deleteRoomCascade, connectVisible } from '../../lib/db.js';
+import { hashAdminKey, deriveResultsKey, hashResultsKey } from '../../lib/roomCode.js';
 import { computeTally } from '../../lib/tally.js';
 import { publishEvent } from '../../lib/realtime.js';
+import { shapeQuestion, publicTally } from '../../lib/question.js';
 import { json } from '../../lib/http.js';
 
 export async function handler(event) {
@@ -31,7 +32,12 @@ export async function handler(event) {
       const votesResult = await db.execute({ sql: 'SELECT * FROM votes WHERE question_id = ?', args: [question.id] });
       questions.push({ ...question, tally: computeTally(question, votesResult.rows) });
     }
-    return json(200, { room, questions });
+    const resultsKey = deriveResultsKey(adminKey);
+    const resultsKeyHash = hashResultsKey(resultsKey);
+    if (room.results_key_hash !== resultsKeyHash) {
+      await db.execute({ sql: 'UPDATE rooms SET results_key_hash = ? WHERE room_code = ?', args: [resultsKeyHash, room.room_code] });
+    }
+    return json(200, { room, questions, showConnect: connectVisible(room), resultsKey });
   }
 
   if (event.httpMethod === 'PATCH') {
@@ -67,6 +73,16 @@ export async function handler(event) {
       }
     }
 
+    const flagTargetId = bodyData.questionId ?? room.current_question_id;
+    if ((bodyData.resultsHidden !== undefined || bodyData.answerShown !== undefined) && flagTargetId) {
+      const sets = [];
+      const qargs = [];
+      if (bodyData.resultsHidden !== undefined) { sets.push('results_hidden = ?'); qargs.push(bodyData.resultsHidden ? 1 : 0); }
+      if (bodyData.answerShown !== undefined) { sets.push('answer_shown = ?'); qargs.push(bodyData.answerShown ? 1 : 0); }
+      qargs.push(flagTargetId, room.room_code);
+      await db.execute({ sql: `UPDATE questions SET ${sets.join(', ')} WHERE id = ? AND room_code = ?`, args: qargs });
+    }
+
     const fields = [];
     const args = [];
     if (bodyData.status !== undefined) {
@@ -77,12 +93,18 @@ export async function handler(event) {
       fields.push('current_question_id = ?');
       args.push(bodyData.currentQuestionId);
     }
+    if (bodyData.showConnect !== undefined) {
+      fields.push('show_connect = ?');
+      args.push(bodyData.showConnect ? 1 : 0);
+    } else if (bodyData.currentQuestionId !== undefined || bodyData.status !== undefined) {
+      fields.push('show_connect = NULL');
+    }
     if (fields.length > 0) {
       args.push(room.room_code);
       await db.execute({ sql: `UPDATE rooms SET ${fields.join(', ')} WHERE room_code = ?`, args });
     }
 
-    if (bodyData.currentQuestionId !== undefined || bodyData.status !== undefined) {
+    if (bodyData.currentQuestionId !== undefined || bodyData.status !== undefined || bodyData.showConnect !== undefined || bodyData.resultsHidden !== undefined || bodyData.answerShown !== undefined) {
       // When only `status` changes (e.g. closing the room), currentQuestionId
       // wasn't provided in the body, so re-derive it from the room's existing
       // current_question_id so clients still get a complete picture.
@@ -102,21 +124,18 @@ export async function handler(event) {
           initialTally = computeTally(currentQuestion, votesResult.rows);
         }
       }
-      const shapedCurrentQuestion = currentQuestion
-        ? {
-            id: currentQuestion.id,
-            type: currentQuestion.type,
-            prompt: currentQuestion.prompt,
-            options: currentQuestion.options ? JSON.parse(currentQuestion.options) : null,
-            scaleMin: currentQuestion.scale_min,
-            scaleMax: currentQuestion.scale_max,
-          }
-        : null;
+      const effectiveStatus = bodyData.status ?? room.status;
+      const reveal = effectiveStatus === 'closed';
+      const shapedCurrentQuestion = currentQuestion ? shapeQuestion(currentQuestion, { reveal }) : null;
+      if (currentQuestion) initialTally = publicTally(currentQuestion, initialTally, { reveal });
 
       await publishEvent(room.room_code, 'state', {
         status: bodyData.status ?? room.status,
         currentQuestion: shapedCurrentQuestion,
         initialTally,
+        showConnect: bodyData.showConnect !== undefined
+          ? !!bodyData.showConnect
+          : connectVisible({ show_connect: null }, bodyData.status ?? room.status, effectiveQuestionId),
       });
     }
 

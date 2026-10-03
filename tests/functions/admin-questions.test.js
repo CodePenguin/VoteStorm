@@ -250,3 +250,80 @@ describe('admin-questions function', () => {
     expect(room.last_activity_date).toBe(todayDateString());
   });
 });
+
+describe('question display type', () => {
+  it('shapeQuestion only reports donut for choice questions', async () => {
+    const { shapeQuestion } = await import('../../lib/question.js');
+    const base = { id: 1, type: 'choice', prompt: 'p', options: '["a","b"]' };
+    expect(shapeQuestion({ ...base, display: 'donut' }).display).toBe('donut');
+    expect(shapeQuestion({ ...base, display: null }).display).toBe('bars');
+    expect(shapeQuestion({ ...base, type: 'rating', display: 'donut' }).display).toBe('bars');
+  });
+});
+
+describe('question editing', () => {
+  let adminKey;
+  let roomCode;
+  let qid;
+  const call = (body) => handler({ httpMethod: 'PATCH', body: JSON.stringify({ adminKey, questionId: qid, ...body }) });
+  const edit = (fields) => call({ edit: { type: 'choice', prompt: 'Pick', options: ['A', 'B'], ...fields } });
+
+  beforeEach(async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'livepoll-test-'));
+    process.env.TURSO_DATABASE_URL = `file:${path.join(dir, 'test.db')}`;
+    const db = createDb();
+    await initSchema(db);
+    adminKey = generateAdminKey();
+    roomCode = deriveRoomCode(adminKey);
+    await db.execute({
+      sql: `INSERT INTO rooms (admin_key_hash, room_code, status, created_at) VALUES (?, ?, 'lobby', ?)`,
+      args: [hashAdminKey(adminKey), roomCode, Date.now()],
+    });
+    const created = await handler({ httpMethod: 'POST', body: JSON.stringify({ adminKey, type: 'choice', prompt: 'Pick', options: ['A', 'B'] }) });
+    qid = JSON.parse(created.body).id;
+    await db.execute({ sql: 'INSERT INTO votes (question_id, device_id, value, created_at) VALUES (?, ?, ?, ?)', args: [qid, 'd1', '0', Date.now()] });
+    vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    delete process.env.TURSO_DATABASE_URL;
+  });
+
+  it('keeps votes when only wording, correct answer, display or hiding changes', async () => {
+    const res = await edit({ prompt: 'Pick better', options: ['Alpha', 'Beta'], correct: [1], display: 'donut', resultsHidden: true });
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body).cleared).toBe(0);
+    const db = createDb();
+    const row = (await db.execute({ sql: 'SELECT * FROM questions WHERE id = ?', args: [qid] })).rows[0];
+    expect(row).toMatchObject({ prompt: 'Pick better', display: 'donut', results_hidden: 1, correct: '[1]' });
+    expect((await db.execute({ sql: 'SELECT * FROM votes', args: [] })).rows).toHaveLength(1);
+  });
+
+  it('asks before a structural change would clear votes, then clears them when confirmed', async () => {
+    const refused = await edit({ options: ['A', 'B', 'C'] });
+    expect(refused.statusCode).toBe(409);
+    expect(JSON.parse(refused.body)).toMatchObject({ code: 'needs_clear', votes: 1 });
+
+    const ok = await edit({ options: ['A', 'B', 'C'], clearVotes: true });
+    expect(JSON.parse(ok.body).cleared).toBe(1);
+    const db = createDb();
+    expect((await db.execute({ sql: 'SELECT * FROM votes', args: [] })).rows).toHaveLength(0);
+  });
+
+  it('can switch a question to a rating scale and validates input', async () => {
+    const res = await call({ edit: { type: 'rating', prompt: 'Rate', scaleMin: 1, scaleMax: 10, clearVotes: true } });
+    expect(res.statusCode).toBe(200);
+    expect((await edit({ options: ['only one'] })).statusCode).toBe(400);
+    expect((await edit({ prompt: '  ' })).statusCode).toBe(400);
+    expect((await call({ edit: { type: 'rating', prompt: 'x', scaleMin: 5, scaleMax: 5 } })).statusCode).toBe(400);
+  });
+
+  it('publishes the new state when the edited question is live', async () => {
+    const db = createDb();
+    await db.execute({ sql: `UPDATE rooms SET status = 'active', current_question_id = ? WHERE room_code = ?`, args: [qid, roomCode] });
+    await edit({ prompt: 'Updated live', display: 'donut' });
+    expect(publishEvent).toHaveBeenCalledWith(roomCode, 'state', expect.objectContaining({
+      currentQuestion: expect.objectContaining({ prompt: 'Updated live', display: 'donut' }),
+    }));
+  });
+});

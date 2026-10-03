@@ -196,6 +196,71 @@ describe('admin-room function', () => {
     expect(publishedPayload.initialTally).not.toBeNull();
   });
 
+  it('showConnect defaults to visible in an empty lobby and is reported on GET', async () => {
+    const res = await handler({ httpMethod: 'GET', queryStringParameters: { adminKey } });
+    expect(JSON.parse(res.body).showConnect).toBe(true);
+  });
+
+  it('presenter can show the join screen during a live question and it persists, publishing a state event', async () => {
+    await handler({ httpMethod: 'PATCH', body: JSON.stringify({ adminKey, status: 'active', currentQuestionId: questionId }) });
+    let res = await handler({ httpMethod: 'GET', queryStringParameters: { adminKey } });
+    expect(JSON.parse(res.body).showConnect).toBe(false);
+    vi.clearAllMocks();
+
+    res = await handler({ httpMethod: 'PATCH', body: JSON.stringify({ adminKey, showConnect: true }) });
+    expect(res.statusCode).toBe(200);
+    expect(publishEvent).toHaveBeenCalledWith(roomCode, 'state', expect.objectContaining({ showConnect: true, status: 'active' }));
+    res = await handler({ httpMethod: 'GET', queryStringParameters: { adminKey } });
+    expect(JSON.parse(res.body).showConnect).toBe(true);
+  });
+
+  it('changing the question or status returns the join screen to its automatic state', async () => {
+    await handler({ httpMethod: 'PATCH', body: JSON.stringify({ adminKey, status: 'active', currentQuestionId: questionId }) });
+    await handler({ httpMethod: 'PATCH', body: JSON.stringify({ adminKey, showConnect: true }) });
+    vi.clearAllMocks();
+
+    await handler({ httpMethod: 'PATCH', body: JSON.stringify({ adminKey, status: 'closed' }) });
+    expect(publishEvent.mock.calls[0][2].showConnect).toBe(false);
+    const res = await handler({ httpMethod: 'GET', queryStringParameters: { adminKey } });
+    expect(JSON.parse(res.body).showConnect).toBe(false);
+  });
+
+  it('hides results and only reveals the correct answer when the presenter says so', async () => {
+    const created = await questionsHandler({
+      httpMethod: 'POST',
+      body: JSON.stringify({ adminKey, type: 'choice', prompt: 'Quiz', options: ['X', 'Y', 'Z'], correct: [1, 1, 9], resultsHidden: true }),
+    });
+    const qid = JSON.parse(created.body).id;
+    await handler({ httpMethod: 'PATCH', body: JSON.stringify({ adminKey, status: 'active', currentQuestionId: qid }) });
+    let payload = publishEvent.mock.calls.at(-1)[2];
+    expect(payload.currentQuestion).toMatchObject({ resultsHidden: true, correct: null });
+    expect(payload.initialTally).toEqual({ totalVotes: 0, hidden: true });
+
+    await handler({ httpMethod: 'PATCH', body: JSON.stringify({ adminKey, resultsHidden: false }) });
+    payload = publishEvent.mock.calls.at(-1)[2];
+    expect(payload.currentQuestion).toMatchObject({ resultsHidden: false, correct: null });
+    expect(payload.initialTally.counts).toEqual([0, 0, 0]);
+
+    await handler({ httpMethod: 'PATCH', body: JSON.stringify({ adminKey, answerShown: true }) });
+    payload = publishEvent.mock.calls.at(-1)[2];
+    expect(payload.currentQuestion.correct).toEqual([1]);
+  });
+
+  it('lets the presenter hide results for a question that is not the live one', async () => {
+    const created = await questionsHandler({
+      httpMethod: 'POST',
+      body: JSON.stringify({ adminKey, type: 'choice', prompt: 'Later', options: ['X', 'Y'] }),
+    });
+    const laterId = JSON.parse(created.body).id;
+    await handler({ httpMethod: 'PATCH', body: JSON.stringify({ adminKey, status: 'active', currentQuestionId: questionId }) });
+    const res = await handler({ httpMethod: 'PATCH', body: JSON.stringify({ adminKey, questionId: laterId, resultsHidden: true }) });
+    expect(res.statusCode).toBe(200);
+    const db = createDb();
+    const rows = (await db.execute({ sql: 'SELECT id, results_hidden FROM questions ORDER BY id', args: [] })).rows;
+    expect(rows.find((r) => r.id === laterId).results_hidden).toBe(1);
+    expect(rows.find((r) => r.id === questionId).results_hidden).toBe(0);
+  });
+
   it('returns 400 on malformed JSON in PATCH body', async () => {
     const res = await handler({
       httpMethod: 'PATCH',

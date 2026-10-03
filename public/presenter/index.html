@@ -1,0 +1,742 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>LivePoll Presenter</title>
+<link rel="stylesheet" href="/shared/styles.css" />
+<script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.3/dist/cdn.min.js"></script>
+<script src="https://cdn.ably.com/lib/ably.min-2.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js"></script>
+<script src="/shared/api.js"></script>
+<style>
+  main.container { padding-top: 28px; padding-bottom: 64px; }
+  .share-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .share-card { display: flex; flex-direction: column; align-items: center; gap: 14px; text-align: center; }
+  .share-card .card-title { margin-bottom: 0; align-self: flex-start; }
+  .share-url { max-width: 100%; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .85rem; overflow-wrap: anywhere; }
+  .qr-box { width: min(220px, 100%); background: #fff; padding: 12px; border-radius: var(--radius-sm); border: 1px solid var(--border); }
+  .qr-box svg { display: block; width: 100%; height: auto; }
+  .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 20px; }
+  .tab { appearance: none; background: none; border: 0; border-bottom: 2px solid transparent; margin-bottom: -1px; padding: 10px 16px; font: inherit; font-weight: 600; color: var(--text-muted); cursor: pointer; }
+  .tab:hover { color: var(--text); }
+  .tab.on { color: var(--accent); border-bottom-color: var(--accent); }
+  .tab:focus-visible { outline: 3px solid color-mix(in srgb, var(--accent) 45%, transparent); outline-offset: -3px; border-radius: 6px; }
+  .section-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 32px 0 14px; }
+  .section-head h2 { font-size: 1.15rem; }
+  .question { padding: 18px 20px; }
+  .question.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent), var(--shadow); }
+  .q-head { display: flex; align-items: flex-start; gap: 12px; }
+  .q-num { width: 28px; height: 28px; border-radius: 8px; background: var(--surface-2); color: var(--text-muted); font-size: .85rem; font-weight: 700; display: grid; place-items: center; flex: none; }
+  .q-prompt { font-weight: 600; font-size: 1.02rem; }
+  .q-meta { display: flex; gap: 8px; align-items: center; margin-top: 4px; flex-wrap: wrap; }
+  .q-results { margin-top: 14px; }
+  .bar-row { display: grid; grid-template-columns: minmax(70px, 160px) 1fr 56px; align-items: center; gap: 12px; margin: 8px 0; font-size: .9rem; }
+  .bar-row .bar-track { height: 12px; }
+  .bar-row .bar-fill { height: 100%; }
+  .bar-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .bar-count { text-align: right; font-variant-numeric: tabular-nums; color: var(--text-muted); }
+  .stat { display: flex; align-items: baseline; gap: 8px; }
+  .stat strong { font-size: 1.8rem; line-height: 1; }
+  .q-actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border); }
+  .empty { text-align: center; padding: 36px 20px; color: var(--text-muted); }
+  .empty strong { display: block; color: var(--text); margin-bottom: 4px; }
+  .toolbar { display: flex; gap: 8px; flex-wrap: wrap; }
+  @media (max-width: 560px) {
+    .share-grid { grid-template-columns: 1fr; }
+    .bar-row { grid-template-columns: 90px 1fr 40px; gap: 8px; }
+  }
+  .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 999px; padding: 2px; background: var(--surface-2); }
+  .seg button { border: 0; background: transparent; color: var(--text-muted); font: inherit; font-size: .82rem; font-weight: 700; padding: 5px 14px; border-radius: 999px; cursor: pointer; }
+  .seg button.on { background: var(--accent); color: var(--accent-contrast); }
+  .q-setup { margin-top: 12px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { background: var(--surface-2); border: 1px solid var(--border); border-radius: 999px; padding: 3px 12px; font-size: .85rem; }
+  .chip.correct { color: var(--success); border-color: var(--success); font-weight: 600; }
+  .present { display: grid; gap: 16px; }
+  .present-prompt { font-size: clamp(1.4rem, 4vw, 2rem); }
+  .present-count { font-size: 1.6rem; color: var(--accent); }
+  .present-nav { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .present-row { display: flex; align-items: center; gap: 12px; padding: 10px 4px; border-bottom: 1px solid var(--border); }
+  .present-row:last-child { border-bottom: 0; }
+  .present-row.live .present-row-prompt { font-weight: 700; }
+  .present-row-prompt { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .present-row-count { font-variant-numeric: tabular-nums; min-width: 2ch; text-align: right; }
+</style>
+</head>
+<body x-data="adminApp()" x-init="init()">
+  <header class="app-header">
+    <div class="container">
+      <a class="brand" href="/">
+        <span class="logo" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M5 20V11M12 20V4M19 20v-6"/></svg>
+        </span>
+        LivePoll
+      </a>
+      <span class="spacer"></span>
+      <template x-if="room">
+        <div class="seg" role="group" aria-label="Presenter mode">
+          <button :class="{ on: mode === 'edit' }" :aria-pressed="mode === 'edit'" @click="setMode('edit')">Edit</button>
+          <button :class="{ on: mode === 'present' }" :aria-pressed="mode === 'present'" @click="setMode('present')">Present</button>
+        </div>
+      </template>
+      <template x-if="room">
+        <span class="badge" :class="room.status">
+          <span class="dot" :class="room.status === 'active' && 'pulse'"></span>
+          <span x-text="statusLabel()"></span>
+        </span>
+      </template>
+    </div>
+  </header>
+
+  <main class="container">
+    <template x-if="error">
+      <div class="alert error" style="margin-bottom:16px">Couldn't complete that: <span x-text="error"></span></div>
+    </template>
+
+    <template x-if="!adminKey">
+      <div class="card empty">
+        <strong>No room yet</strong>
+        <p style="margin-bottom:16px">Create a room to start adding questions.</p>
+        <button class="btn primary" @click="createRoom()">Create a new room</button>
+      </div>
+    </template>
+
+    <template x-if="adminKey && room">
+      <div>
+        <div x-show="mode === 'present'" class="present" x-cloak>
+          <div class="card present-now">
+            <template x-if="currentQ()">
+              <div>
+                <div class="card-title">Now showing</div>
+                <h2 class="present-prompt" x-text="currentQ().prompt"></h2>
+                <p class="muted" style="margin:6px 0 16px"><strong class="present-count" x-text="currentQ().tally.totalVotes || 0"></strong> <span x-text="(currentQ().tally.totalVotes || 0) === 1 ? 'response' : 'responses'"></span></p>
+                <div class="q-results" style="margin-bottom:16px">
+                  <template x-if="currentQ().results_hidden">
+                    <p class="muted" style="font-size:.85rem; margin-bottom:8px">Results are hidden from the audience. You can still see them here.</p>
+                  </template>
+                  <template x-if="currentQ().type === 'choice'">
+                    <div>
+                      <template x-for="(opt, i) in JSON.parse(currentQ().options)" :key="i">
+                        <div class="bar-row">
+                          <span class="bar-label" x-text="opt + (isCorrect(currentQ(), i) ? ' \u2713' : '')" :title="opt" :style="isCorrect(currentQ(), i) ? 'color: var(--success)' : ''"></span>
+                          <div class="bar-track"><div class="bar-fill" :style="`width: ${pct(currentQ(), i)}%`"></div></div>
+                          <span class="bar-count" x-text="currentQ().tally.counts[i] || 0"></span>
+                        </div>
+                      </template>
+                    </div>
+                  </template>
+                  <template x-if="currentQ().type === 'rating'">
+                    <div class="stat">
+                      <strong x-text="fmtAvg(currentQ().tally.average)"></strong>
+                      <span class="muted">average</span>
+                    </div>
+                  </template>
+                </div>
+                <div class="toolbar">
+                  <button class="btn" @click="setQuestionFlag({ questionId: currentQ().id, resultsHidden: !currentQ().results_hidden })" x-text="currentQ().results_hidden ? 'Show results' : 'Hide results'"></button>
+                  <button class="btn" x-show="currentQ().correct" @click="setQuestionFlag({ questionId: currentQ().id, answerShown: !currentQ().answer_shown })" x-text="currentQ().answer_shown ? 'Hide answer' : 'Reveal answer'"></button>
+                  <button class="btn" @click="setConnect(!showConnect)" x-text="showConnect ? 'Hide join screen' : 'Show join screen'"></button>
+                </div>
+              </div>
+            </template>
+            <template x-if="!currentQ()">
+              <div>
+                <div class="card-title">Now showing</div>
+                <h2 class="present-prompt muted">No question is live</h2>
+                <div class="toolbar" style="margin-top:12px">
+                  <button class="btn" @click="setConnect(!showConnect)" x-text="showConnect ? 'Hide join screen' : 'Show join screen'"></button>
+                </div>
+              </div>
+            </template>
+          </div>
+
+          <div class="present-nav">
+            <button class="btn lg" @click="stepQuestion(-1)" :disabled="!canStep(-1)">&lsaquo; Previous</button>
+            <button class="btn primary lg" @click="stepQuestion(1)" :disabled="!canStep(1)">Next question &rsaquo;</button>
+          </div>
+
+          <div class="card" x-show="questions.length">
+            <template x-for="(q, index) in questions" :key="q.id">
+              <div class="present-row" :class="{ live: q.id === room.current_question_id }">
+                <span class="q-num" x-text="index + 1"></span>
+                <span class="present-row-prompt" x-text="q.prompt"></span>
+                <span class="muted present-row-count" x-text="(q.tally.totalVotes || 0)"></span>
+                <button class="btn sm" @click="copyQuestionLink(q)" x-text="copiedQuestion === q.id ? 'Copied!' : 'Copy link'" title="Results screen for this question. Opening it makes the question live."></button>
+                <button class="btn sm primary" x-show="q.id !== room.current_question_id" @click="activate(q.id)">Go live</button>
+                <span class="badge active" x-show="q.id === room.current_question_id"><span class="dot pulse"></span>Live</span>
+              </div>
+            </template>
+          </div>
+        </div>
+
+        <div x-show="mode === 'edit'">
+        <div class="tabs" role="tablist">
+          <button class="tab" role="tab" :class="{ on: tab === 'share' }" :aria-selected="tab === 'share'" @click="setTab('share')">Share</button>
+          <button class="tab" role="tab" :class="{ on: tab === 'questions' }" :aria-selected="tab === 'questions'" @click="setTab('questions')">Questions <span class="muted" x-text="'(' + questions.length + ')'"></span></button>
+          <button class="tab" role="tab" :class="{ on: tab === 'room' }" :aria-selected="tab === 'room'" @click="setTab('room')">Control</button>
+        </div>
+
+        <div x-show="tab === 'share'" role="tabpanel">
+        <div class="share-grid">
+          <template x-for="kind in ['vote', 'results']" :key="kind">
+            <div class="card share-card">
+              <div class="card-title" x-text="kind === 'vote' ? 'Audience' : 'Results'"></div>
+              <div class="qr-box" role="img" :aria-label="'QR code for the ' + (kind === 'vote' ? 'audience' : 'results') + ' page'" x-html="qrSvg(kind)"></div>
+              <a class="share-url" :href="shareUrl(kind)" target="_blank" x-text="shareUrl(kind)"></a>
+              <button class="btn" @click="copy(kind)" x-text="copied === kind ? 'Copied!' : 'Copy link'"></button>
+            </div>
+          </template>
+        </div>
+        </div>
+
+        <div x-show="tab === 'questions'" role="tabpanel">
+        <div class="section-head" style="margin-top:0">
+          <h2>Questions</h2>
+          <button class="btn primary" @click="showAddForm ? cancelForm() : openAddForm()" x-text="showAddForm ? 'Cancel' : '+ Add question'"></button>
+        </div>
+
+        <template x-if="showAddForm">
+          <div class="card" style="margin-bottom:16px">
+            <div class="card-title" x-text="editingId ? 'Edit question' : 'New question'"></div>
+            <div class="form-grid">
+              <label class="field">
+                <span>Type</span>
+                <select class="input" x-model="newQuestion.type">
+                  <option value="choice">Choice</option>
+                  <option value="rating">Rating scale</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>Prompt</span>
+                <input class="input" type="text" x-model="newQuestion.prompt" placeholder="What would you like to ask?" />
+              </label>
+              <template x-if="newQuestion.type === 'choice'">
+                <div class="form-grid full">
+                  <label class="field full">
+                    <span>Options (comma separated)</span>
+                    <input class="input" type="text" x-model="newQuestion.optionsText" placeholder="Yes, No, Maybe" />
+                  </label>
+                  <label class="field full">
+                    <span>Correct answer(s), optional (option text, comma separated)</span>
+                    <input class="input" type="text" x-model="newQuestion.correctText" placeholder="Leave blank if there is no right answer" />
+                  </label>
+                  <label class="field">
+                    <span>Live results display</span>
+                    <select class="input" x-model="newQuestion.display">
+                      <option value="bars">Animated bars</option>
+                      <option value="donut">Donut chart</option>
+                    </select>
+                  </label>
+                  <label style="display:flex; align-items:center; gap:8px; font-size:.92rem">
+                    <input type="checkbox" x-model="newQuestion.multi" /> Allow multiple answers
+                  </label>
+                </div>
+              </template>
+              <template x-if="newQuestion.type === 'rating'">
+                <div class="form-grid full">
+                  <label class="field">
+                    <span>Min</span>
+                    <input class="input" type="number" x-model.number="newQuestion.scaleMin" />
+                  </label>
+                  <label class="field">
+                    <span>Max</span>
+                    <input class="input" type="number" x-model.number="newQuestion.scaleMax" />
+                  </label>
+                </div>
+              </template>
+              <label class="full" style="display:flex; align-items:center; gap:8px; font-size:.92rem">
+                <input type="checkbox" x-model="newQuestion.resultsHidden" /> Hide results until I show them
+              </label>
+            </div>
+            <div class="row" style="margin-top:16px">
+              <button class="btn primary" @click="saveQuestion()" x-text="editingId ? 'Save changes' : 'Save question'"></button>
+              <button class="btn ghost" @click="cancelForm()">Cancel</button>
+            </div>
+          </div>
+        </template>
+
+        <template x-if="questions.length === 0 && !showAddForm">
+          <div class="card empty">
+            <strong>No questions yet</strong>
+            <p>Add your first question to get started.</p>
+          </div>
+        </template>
+
+        <div class="stack">
+          <template x-for="(q, index) in questions" :key="q.id">
+            <div class="card question" :class="{ active: q.id === room.current_question_id }">
+              <div class="q-head">
+                <div class="q-num" x-text="index + 1"></div>
+                <div style="flex:1; min-width:0">
+                  <div class="q-prompt" x-text="q.prompt"></div>
+                  <div class="q-meta">
+                    <span class="badge" x-text="q.type === 'choice' ? (q.multi ? 'Multi-select' : 'Choice') : 'Rating ' + q.scale_min + '–' + q.scale_max"></span>
+                    <span class="badge active" x-show="q.id === room.current_question_id"><span class="dot pulse"></span>Live now</span>
+                    <span class="badge" x-show="q.type === 'choice' && q.display === 'donut'">Donut</span>
+                    <span class="badge" x-show="q.results_hidden">Results hidden</span>
+                    <span class="badge" x-show="q.correct">Has answer</span>
+                  </div>
+                </div>
+                <button class="icon-btn" @click="startEdit(q)" aria-label="Edit question" title="Edit question">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+                </button>
+              </div>
+
+              <div class="q-setup">
+                <template x-if="q.type === 'choice'">
+                  <div class="chips">
+                    <template x-for="(opt, i) in JSON.parse(q.options)" :key="i">
+                      <span class="chip" :class="{ correct: isCorrect(q, i) }" x-text="opt + (isCorrect(q, i) ? ' \u2713' : '')"></span>
+                    </template>
+                  </div>
+                </template>
+                <template x-if="q.type === 'rating'">
+                  <span class="muted" x-text="'Rating scale ' + q.scale_min + ' to ' + q.scale_max"></span>
+                </template>
+              </div>
+
+              <div class="q-actions">
+                <button class="btn sm primary" @click="activate(q.id)" x-show="q.id !== room.current_question_id">Activate</button>
+                <button class="btn sm" @click="copyQuestionLink(q)" x-text="copiedQuestion === q.id ? 'Copied!' : 'Copy results link'" title="Results screen for this question. Opening it makes the question live, so it can drive a slide."></button>
+                <button class="btn sm" @click="moveUp(index)" x-show="index > 0" aria-label="Move up">&uarr; Up</button>
+                <button class="btn sm" @click="moveDown(index)" x-show="index < questions.length - 1" aria-label="Move down">&darr; Down</button>
+                <span class="spacer"></span>
+                <button class="btn sm" @click="resetQuestion(q.id)">Reset votes</button>
+                <button class="btn sm danger" @click="deleteQuestion(q.id)">Delete</button>
+              </div>
+            </div>
+          </template>
+        </div>
+
+        </div>
+
+        <div x-show="tab === 'room'" role="tabpanel">
+        <div class="card" style="margin-bottom:16px">
+          <div class="card-title">Results screen</div>
+          <div class="toolbar">
+            <button class="btn primary" @click="setConnect(!showConnect)" x-text="showConnect ? 'Hide join screen' : 'Show join screen'"></button>
+          </div>
+          <p class="muted" style="font-size:.82rem; margin-top:12px">The join screen puts the QR code and live connection count on the results display so latecomers can get connected. It shows automatically before the first question; use this to bring it back at any time.</p>
+        </div>
+
+        <div class="card">
+          <div class="card-title">Control</div>
+          <div class="toolbar">
+            <button class="btn" @click="resetRoom()">Reset all votes</button>
+            <button class="btn" @click="closeRoom()" x-show="room.status !== 'closed'">Close room</button>
+            <button class="btn primary" @click="reopenRoom()" x-show="room.status === 'closed'">Reopen room</button>
+            <span class="spacer"></span>
+            <button class="btn danger" @click="deleteRoom()">Delete room</button>
+          </div>
+          <p class="muted" style="font-size:.82rem; margin-top:12px">Closing stops voting but keeps results; reopening resumes it. Deleting removes the room and all votes permanently.</p>
+        </div>
+        </div>
+        </div>
+      </div>
+    </template>
+  </main>
+
+<script>
+function adminApp() {
+  return {
+    adminKey: null,
+    room: null,
+    questions: [],
+    showAddForm: false,
+    editingId: null,
+    copiedQuestion: null,
+    resultsKey: null,
+    mode: 'edit',
+    error: null,
+    copied: null,
+    showConnect: false,
+    tab: 'questions',
+    newQuestion: { type: 'choice', prompt: '', optionsText: '', correctText: '', display: 'bars', resultsHidden: false, multi: false, scaleMin: 1, scaleMax: 5 },
+
+    async init() {
+      const parts = window.location.pathname.split('/').filter(Boolean);
+      this.adminKey = parts.length > 1 ? parts[1] : null;
+      try { if (localStorage.getItem('livepoll_mode') === 'present') this.mode = 'present'; } catch (e) { /* storage unavailable */ }
+      const hashTab = window.location.hash.slice(1);
+      if (['share', 'questions', 'room'].includes(hashTab)) this.tab = hashTab;
+      if (this.adminKey) {
+        try {
+          await this.load();
+          LivePoll.subscribeRoom(this.room.room_code, {
+            tally: (data) => this.onTally(data),
+            state: () => this.safeLoad(),
+          });
+        } catch (err) {
+          this.error = (err && err.message) || 'Something went wrong';
+        }
+      }
+    },
+
+    async createRoom() {
+      try {
+        const data = await LivePoll.api('create-room', { method: 'POST' });
+        window.location.href = `/presenter/${data.adminKey}`;
+      } catch (err) {
+        this.error = (err && err.message) || 'Something went wrong';
+      }
+    },
+
+    async load() {
+      const data = await LivePoll.api(`admin-room?adminKey=${encodeURIComponent(this.adminKey)}`);
+      this.room = data.room;
+      this.questions = data.questions;
+      this.showConnect = !!data.showConnect;
+      this.resultsKey = data.resultsKey;
+    },
+
+    async safeLoad() {
+      try {
+        await this.load();
+        this.error = null;
+      } catch (err) {
+        this.error = (err && err.message) || 'Something went wrong';
+      }
+    },
+
+    onTally(data) {
+      const q = this.questions.find((q) => q.id === data.questionId);
+      if (!q) return;
+      if (data.hidden) { this.safeLoad(); return; }
+      q.tally = data;
+    },
+
+    isCorrect(q, i) {
+      return !!q.correct && JSON.parse(q.correct).includes(i);
+    },
+
+    setMode(mode) {
+      this.mode = mode;
+      if (mode === 'present') this.showAddForm = false;
+      try { localStorage.setItem('livepoll_mode', mode); } catch (e) { /* storage unavailable */ }
+    },
+
+    currentQ() {
+      return this.questions.find((q) => q.id === this.room.current_question_id) || null;
+    },
+
+    currentIndex() {
+      return this.questions.findIndex((q) => q.id === this.room.current_question_id);
+    },
+
+    canStep(dir) {
+      const i = this.currentIndex();
+      if (i === -1) return dir > 0 && this.questions.length > 0;
+      return i + dir >= 0 && i + dir < this.questions.length;
+    },
+
+    stepQuestion(dir) {
+      if (!this.canStep(dir)) return;
+      const i = this.currentIndex();
+      this.activate(this.questions[i === -1 ? 0 : i + dir].id);
+    },
+
+    async copyQuestionLink(q) {
+      const url = `${window.location.origin}/results/${this.resultsKey}?q=${q.id}`;
+      if (await LivePoll.copyText(url)) {
+        this.copiedQuestion = q.id;
+        this.error = null;
+        setTimeout(() => { if (this.copiedQuestion === q.id) this.copiedQuestion = null; }, 1500);
+      } else {
+        this.error = 'Could not copy automatically. Use: ' + url;
+      }
+    },
+
+    async setQuestionFlag(flags) {
+      try {
+        await LivePoll.api('admin-room', { method: 'PATCH', body: JSON.stringify({ adminKey: this.adminKey, ...flags }) });
+        await this.load();
+        this.error = null;
+      } catch (err) {
+        this.error = (err && err.message) || 'Something went wrong';
+      }
+    },
+
+    pct(q, i) {
+      const total = q.tally.totalVotes || 0;
+      if (!total) return 0;
+      return Math.round(((q.tally.counts[i] || 0) / total) * 100);
+    },
+
+    fmtAvg(avg) {
+      return avg === null || avg === undefined ? '–' : Number(avg).toFixed(1);
+    },
+
+    statusLabel() {
+      return { lobby: 'Lobby', active: 'Live', closed: 'Closed' }[this.room.status] || this.room.status;
+    },
+
+    shareUrl(kind) {
+      return `${window.location.origin}/${kind}/${kind === 'results' ? this.resultsKey : this.room.room_code}`;
+    },
+
+    setTab(name) {
+      this.tab = name;
+      history.replaceState(null, '', '#' + name);
+    },
+
+    qrSvg(kind) {
+      try {
+        const qr = qrcode(0, 'M');
+        qr.addData(this.shareUrl(kind));
+        qr.make();
+        return qr.createSvgTag({ scalable: true, margin: 0 });
+      } catch (err) {
+        return '';
+      }
+    },
+
+    legacyCopy(text) {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.setAttribute('readonly', '');
+      ta.style.cssText = 'position:fixed;top:0;left:0;opacity:0;font-size:16px;';
+      document.body.appendChild(ta);
+      try {
+        const sel = window.getSelection();
+        const range = document.createRange();
+        range.selectNodeContents(ta);
+        sel.removeAllRanges();
+        sel.addRange(range);
+        ta.setSelectionRange(0, text.length);
+        return document.execCommand('copy');
+      } catch (err) {
+        return false;
+      } finally {
+        document.body.removeChild(ta);
+      }
+    },
+
+    async setConnect(show) {
+      try {
+        await LivePoll.api('admin-room', {
+          method: 'PATCH',
+          body: JSON.stringify({ adminKey: this.adminKey, showConnect: show }),
+        });
+        this.showConnect = show;
+        this.error = null;
+      } catch (err) {
+        this.error = (err && err.message) || 'Something went wrong';
+      }
+    },
+
+    async copy(kind) {
+      const text = this.shareUrl(kind);
+      let ok = false;
+      if (navigator.clipboard && window.isSecureContext) {
+        try {
+          await navigator.clipboard.writeText(text);
+          ok = true;
+        } catch (err) {
+          ok = false;
+        }
+      }
+      if (!ok) ok = this.legacyCopy(text);
+      if (ok) {
+        this.error = null;
+        this.copied = kind;
+        setTimeout(() => { if (this.copied === kind) this.copied = null; }, 1500);
+      } else {
+        this.error = 'Could not copy automatically. Press and hold the link to copy it.';
+      }
+    },
+
+    blankQuestion() {
+      return { type: 'choice', prompt: '', optionsText: '', correctText: '', display: 'bars', resultsHidden: false, multi: false, scaleMin: 1, scaleMax: 5 };
+    },
+
+    openAddForm() {
+      this.editingId = null;
+      this.newQuestion = this.blankQuestion();
+      this.showAddForm = true;
+    },
+
+    cancelForm() {
+      this.showAddForm = false;
+      this.editingId = null;
+      this.newQuestion = this.blankQuestion();
+    },
+
+    startEdit(q) {
+      const options = q.options ? JSON.parse(q.options) : [];
+      const correct = q.correct ? JSON.parse(q.correct) : [];
+      this.newQuestion = {
+        type: q.type,
+        prompt: q.prompt,
+        optionsText: options.join(', '),
+        correctText: correct.map((i) => options[i]).filter(Boolean).join(', '),
+        display: q.display === 'donut' ? 'donut' : 'bars',
+        resultsHidden: !!q.results_hidden,
+        multi: !!q.multi,
+        scaleMin: q.scale_min ?? 1,
+        scaleMax: q.scale_max ?? 5,
+      };
+      this.editingId = q.id;
+      this.showAddForm = true;
+      this.setTab('questions');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    },
+
+    buildQuestionPayload() {
+      const f = this.newQuestion;
+      const payload = { type: f.type, prompt: f.prompt, resultsHidden: !!f.resultsHidden };
+      if (f.type === 'choice') {
+        payload.options = f.optionsText.split(',').map((x) => x.trim()).filter(Boolean);
+        payload.multi = !!f.multi;
+        payload.display = f.display;
+        const wanted = f.correctText.split(',').map((x) => x.trim().toLowerCase()).filter(Boolean);
+        const lower = payload.options.map((o) => o.toLowerCase());
+        const missing = wanted.filter((w) => !lower.includes(w));
+        if (missing.length) throw new Error('Correct answer "' + missing[0] + '" is not one of the options');
+        if (wanted.length) payload.correct = wanted.map((w) => lower.indexOf(w));
+      } else {
+        payload.scaleMin = f.scaleMin;
+        payload.scaleMax = f.scaleMax;
+      }
+      return payload;
+    },
+
+    async saveQuestion() {
+      try {
+        const payload = this.buildQuestionPayload();
+        if (this.editingId) {
+          const send = (clearVotes) => LivePoll.api('admin-questions', {
+            method: 'PATCH',
+            body: JSON.stringify({ adminKey: this.adminKey, questionId: this.editingId, edit: { ...payload, clearVotes } }),
+          });
+          try {
+            await send(false);
+          } catch (err) {
+            if (err.status === 409 && confirm(err.message + ' Continue?')) await send(true);
+            else throw err;
+          }
+        } else {
+          await LivePoll.api('admin-questions', { method: 'POST', body: JSON.stringify({ adminKey: this.adminKey, ...payload }) });
+        }
+        this.cancelForm();
+        await this.load();
+        this.error = null;
+      } catch (err) {
+        this.error = (err && err.message) || 'Something went wrong';
+      }
+    },
+
+    async activate(questionId) {
+      try {
+        await LivePoll.api('admin-room', {
+          method: 'PATCH',
+          body: JSON.stringify({ adminKey: this.adminKey, status: 'active', currentQuestionId: questionId }),
+        });
+        await this.load();
+        this.error = null;
+      } catch (err) {
+        this.error = (err && err.message) || 'Something went wrong';
+      }
+    },
+
+    async resetQuestion(questionId) {
+      try {
+        await LivePoll.api('admin-questions', {
+          method: 'PATCH',
+          body: JSON.stringify({ adminKey: this.adminKey, questionId, action: 'reset' }),
+        });
+        await this.load();
+        this.error = null;
+      } catch (err) {
+        this.error = (err && err.message) || 'Something went wrong';
+      }
+    },
+
+    async resetRoom() {
+      try {
+        await LivePoll.api('admin-room', {
+          method: 'PATCH',
+          body: JSON.stringify({ adminKey: this.adminKey, action: 'reset' }),
+        });
+        await this.load();
+        this.error = null;
+      } catch (err) {
+        this.error = (err && err.message) || 'Something went wrong';
+      }
+    },
+
+    async closeRoom() {
+      try {
+        await LivePoll.api('admin-room', {
+          method: 'PATCH',
+          body: JSON.stringify({ adminKey: this.adminKey, status: 'closed' }),
+        });
+        await this.load();
+        this.error = null;
+      } catch (err) {
+        this.error = (err && err.message) || 'Something went wrong';
+      }
+    },
+
+    async reopenRoom() {
+      try {
+        await LivePoll.api('admin-room', {
+          method: 'PATCH',
+          body: JSON.stringify({ adminKey: this.adminKey, status: this.room.current_question_id ? 'active' : 'lobby' }),
+        });
+        await this.load();
+        this.error = null;
+      } catch (err) {
+        this.error = (err && err.message) || 'Something went wrong';
+      }
+    },
+
+    async deleteRoom() {
+      if (!confirm('Delete this room? This cannot be undone.')) return;
+      try {
+        await LivePoll.api('admin-room', { method: 'DELETE', body: JSON.stringify({ adminKey: this.adminKey }) });
+        window.location.href = '/presenter/';
+      } catch (err) {
+        this.error = (err && err.message) || 'Something went wrong';
+      }
+    },
+
+    async deleteQuestion(questionId) {
+      try {
+        await LivePoll.api('admin-questions', { method: 'DELETE', body: JSON.stringify({ adminKey: this.adminKey, questionId }) });
+        await this.load();
+        this.error = null;
+      } catch (err) {
+        this.error = (err && err.message) || 'Something went wrong';
+      }
+    },
+
+    async moveUp(index) {
+      await this.swap(index, index - 1);
+    },
+    async moveDown(index) {
+      await this.swap(index, index + 1);
+    },
+    async swap(i, j) {
+      try {
+        const a = this.questions[i];
+        const b = this.questions[j];
+        await LivePoll.api('admin-questions', {
+          method: 'PATCH',
+          body: JSON.stringify({ adminKey: this.adminKey, questionId: a.id, orderIndex: b.order_index }),
+        });
+        await LivePoll.api('admin-questions', {
+          method: 'PATCH',
+          body: JSON.stringify({ adminKey: this.adminKey, questionId: b.id, orderIndex: a.order_index }),
+        });
+        await this.load();
+        this.error = null;
+      } catch (err) {
+        this.error = (err && err.message) || 'Something went wrong';
+      }
+    },
+  };
+}
+</script>
+</body>
+</html>

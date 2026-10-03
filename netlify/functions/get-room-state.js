@@ -1,5 +1,6 @@
-import { createDb, initSchema, getRoomByCode } from '../../lib/db.js';
+import { createDb, initSchema, getRoomByCode, connectVisible } from '../../lib/db.js';
 import { computeTally } from '../../lib/tally.js';
+import { shapeQuestion, publicTally } from '../../lib/question.js';
 import { json } from '../../lib/http.js';
 
 export async function handler(event) {
@@ -19,7 +20,7 @@ export async function handler(event) {
   }
 
   if (!room.current_question_id) {
-    return json(200, { status: room.status, currentQuestion: null, tally: null });
+    return json(200, { status: room.status, currentQuestion: null, tally: null, showConnect: connectVisible(room) });
   }
 
   const questionResult = await db.execute({
@@ -35,16 +36,11 @@ export async function handler(event) {
 
   const tally = computeTally(question, votesResult.rows);
 
+  const reveal = room.status === 'closed';
   return json(200, {
     status: room.status,
-    currentQuestion: {
-      id: question.id,
-      type: question.type,
-      prompt: question.prompt,
-      options: question.options ? JSON.parse(question.options) : null,
-      scaleMin: question.scale_min,
-      scaleMax: question.scale_max,
-    },
-    tally,
+    currentQuestion: shapeQuestion(question, { reveal }),
+    tally: publicTally(question, tally, { reveal }),
+    showConnect: connectVisible(room),
   });
 }

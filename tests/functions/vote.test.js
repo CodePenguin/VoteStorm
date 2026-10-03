@@ -52,7 +52,54 @@ describe('vote function', () => {
     expect(publishEvent).toHaveBeenCalledWith('ROOM01', 'tally', expect.objectContaining({ questionId: 1 }));
   });
 
-  it('rejects a second vote from the same device', async () => {
+  describe('multi-select question', () => {
+    beforeEach(async () => {
+      const db = createDb();
+      await db.execute({
+        sql: `INSERT INTO questions (id, room_code, order_index, type, prompt, options, multi, created_at) VALUES (2, 'ROOM01', 1, 'choice', 'Pick any', ?, 1, ?)`,
+        args: [JSON.stringify(['A', 'B', 'C']), Date.now()],
+      });
+      await db.execute({ sql: 'UPDATE rooms SET current_question_id = 2', args: [] });
+    });
+
+    const vote = (deviceId, value) => handler({
+      httpMethod: 'POST',
+      body: JSON.stringify({ roomCode: 'ROOM01', questionId: 2, deviceId, value }),
+    });
+
+    it('tallies each selected option once per person and counts people as the total', async () => {
+      await vote('d1', [0, 2]);
+      const res = await vote('d2', [2]);
+      expect(res.statusCode).toBe(200);
+      expect(JSON.parse(res.body).tally).toEqual({ counts: [1, 0, 2], totalVotes: 2 });
+    });
+
+    it('rejects non-array, empty, out-of-range and non-integer selections', async () => {
+      for (const bad of [1, [], [3], [-1], [0.5], ['x']]) {
+        expect((await vote('d1', bad)).statusCode).toBe(400);
+      }
+    });
+
+    it('de-duplicates repeated picks and lets a device replace its selection', async () => {
+      const res = await vote('d1', [1, 1]);
+      expect(JSON.parse(res.body).tally.counts).toEqual([0, 1, 0]);
+      const changed = await vote('d1', [0]);
+      expect(changed.statusCode).toBe(200);
+      expect(JSON.parse(changed.body).tally).toEqual({ counts: [1, 0, 0], totalVotes: 1 });
+    });
+
+    it('single-choice questions still reject arrays', async () => {
+      const db = createDb();
+      await db.execute({ sql: 'UPDATE rooms SET current_question_id = 1', args: [] });
+      const res = await handler({
+        httpMethod: 'POST',
+        body: JSON.stringify({ roomCode: 'ROOM01', questionId: 1, deviceId: 'd9', value: [0, 1] }),
+      });
+      expect(res.statusCode).toBe(400);
+    });
+  });
+
+  it('lets a device change its vote: the new choice replaces the old and the total stays 1', async () => {
     await handler({
       httpMethod: 'POST',
       body: JSON.stringify({ roomCode: 'ROOM01', questionId: 1, deviceId: 'dev-a', value: 0 }),
@@ -61,7 +108,8 @@ describe('vote function', () => {
       httpMethod: 'POST',
       body: JSON.stringify({ roomCode: 'ROOM01', questionId: 1, deviceId: 'dev-a', value: 1 }),
     });
-    expect(res.statusCode).toBe(409);
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body).tally).toEqual({ counts: [0, 1], totalVotes: 1 });
   });
 
   it('rejects a vote for a question that is not currently active', async () => {
@@ -87,22 +135,23 @@ describe('vote function', () => {
     expect(res.statusCode).toBe(409);
   });
 
-  it('includes a code field distinguishing not_active and already_voted 409s', async () => {
-    const notActiveRes = await handler({
+  it('reports code not_active on a 409 for an inactive question', async () => {
+    const res = await handler({
       httpMethod: 'POST',
       body: JSON.stringify({ roomCode: 'ROOM01', questionId: 99, deviceId: 'dev-code', value: 0 }),
     });
-    expect(JSON.parse(notActiveRes.body).code).toBe('not_active');
+    expect(JSON.parse(res.body).code).toBe('not_active');
+  });
 
-    await handler({
+  it('withholds counts from the response and the published tally while results are hidden', async () => {
+    const db = createDb();
+    await db.execute({ sql: 'UPDATE questions SET results_hidden = 1 WHERE id = 1', args: [] });
+    const res = await handler({
       httpMethod: 'POST',
-      body: JSON.stringify({ roomCode: 'ROOM01', questionId: 1, deviceId: 'dev-dup', value: 0 }),
+      body: JSON.stringify({ roomCode: 'ROOM01', questionId: 1, deviceId: 'dev-h', value: 0 }),
     });
-    const dupRes = await handler({
-      httpMethod: 'POST',
-      body: JSON.stringify({ roomCode: 'ROOM01', questionId: 1, deviceId: 'dev-dup', value: 1 }),
-    });
-    expect(JSON.parse(dupRes.body).code).toBe('already_voted');
+    expect(JSON.parse(res.body).tally).toEqual({ totalVotes: 1, hidden: true });
+    expect(publishEvent).toHaveBeenCalledWith('ROOM01', 'tally', { questionId: 1, totalVotes: 1, hidden: true });
   });
 
   it('rejects an out-of-range choice vote value', async () => {

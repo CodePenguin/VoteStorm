@@ -4,117 +4,508 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>LivePoll</title>
+<link rel="stylesheet" href="/shared/styles.css" />
 <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.3/dist/cdn.min.js"></script>
 <script src="https://cdn.ably.com/lib/ably.min-2.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js"></script>
 <script src="/shared/api.js"></script>
 <style>
-  body { font-family: system-ui, sans-serif; max-width: 480px; margin: 3rem auto; padding: 0 1rem; text-align: center; }
-  button.option { display: block; width: 100%; padding: 1rem; margin: .5rem 0; font-size: 1.1rem; border-radius: 8px; border: 2px solid #2563eb; background: white; cursor: pointer; }
-  button.option:hover { background: #eff6ff; }
-  .rating-scale { display: flex; justify-content: center; gap: .5rem; }
+  .page { min-height: 100vh; min-height: 100dvh; display: flex; flex-direction: column; }
+  main.container { flex: 1; padding-top: 28px; padding-bottom: 48px; }
+  .prompt { font-size: clamp(1.4rem, 5.5vw, 1.8rem); margin-bottom: 20px; }
+  .hint { color: var(--text-muted); font-size: .9rem; margin-bottom: 16px; }
+  .choices { display: grid; gap: 12px; }
+  .choice {
+    width: 100%; text-align: left; padding: 16px 18px; min-height: 58px;
+    font: inherit; font-size: 1.08rem; font-weight: 600; color: var(--text);
+    background: var(--surface); border: 2px solid var(--border); border-radius: var(--radius);
+    cursor: pointer; transition: border-color .15s, background .15s, transform .05s;
+  }
+  .choice:hover { border-color: var(--accent); background: var(--accent-soft); }
+  .choice:active { transform: scale(.99); }
+  .rating-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(56px, 1fr)); gap: 10px; }
+  .choice.picked { border-color: var(--accent); background: var(--accent-soft); }
+  .choice { display: flex; align-items: center; gap: 12px; }
+  .choice .tick { width: 22px; height: 22px; flex: none; border: 2px solid var(--border); border-radius: 6px; display: inline-grid; place-items: center; font-size: .9rem; color: var(--accent-contrast); }
+  .choice.picked .tick { background: var(--accent); border-color: var(--accent); }
+  .choice:not([aria-pressed]) .tick { display: none; }
+  .rate {
+    aspect-ratio: 1; min-height: 56px; font: inherit; font-size: 1.25rem; font-weight: 700; color: var(--text);
+    background: var(--surface); border: 2px solid var(--border); border-radius: var(--radius);
+    cursor: pointer; transition: border-color .15s, background .15s, transform .05s;
+  }
+  .rate.picked { border-color: var(--accent); background: var(--accent-soft); }
+  .vote-count { font-size: 3.5rem; font-weight: 800; line-height: 1; color: var(--accent); font-variant-numeric: tabular-nums; margin-bottom: 8px; }
+  .correct-note { color: var(--success); background: var(--success-soft); border-radius: var(--radius-sm); padding: 8px 12px; display: inline-block; }
+  .rate:hover { border-color: var(--accent); background: var(--accent-soft); }
+  .rate:active { transform: scale(.96); }
+  .state { text-align: center; padding: 40px 20px; }
+  .state .icon { width: 56px; height: 56px; border-radius: 50%; display: grid; place-items: center; margin: 0 auto 16px; background: var(--accent-soft); color: var(--accent); }
+  .state .icon svg { width: 28px; height: 28px; }
+  .state .icon.ok { background: var(--success-soft); color: var(--success); }
+  .state .icon.closed { background: var(--surface-2); color: var(--text-muted); }
+  .state h2 { font-size: 1.3rem; margin-bottom: 6px; }
+  .state p { color: var(--text-muted); }
+  .footer { text-align: center; padding: 16px; font-size: .8rem; color: var(--text-muted); }
 </style>
 </head>
 <body x-data="voteApp()" x-init="init()">
-  <h1>LivePoll</h1>
-
-  <template x-if="!roomCode">
-    <p>No room specified.</p>
-  </template>
-
-  <template x-if="roomCode && roomClosed">
-    <p>This room is closed.</p>
-  </template>
-
-  <template x-if="roomCode && !roomClosed && !currentQuestion">
-    <p>Waiting for the next question&hellip;</p>
-  </template>
-
-  <template x-if="!roomClosed && currentQuestion && hasVoted">
-    <p>Thanks! Waiting for the next question&hellip;</p>
-  </template>
-
-  <template x-if="!roomClosed && currentQuestion && !hasVoted">
-    <div>
-      <h2 x-text="currentQuestion.prompt"></h2>
-
-      <template x-if="currentQuestion.type === 'choice'">
-        <div>
-          <template x-for="(opt, i) in currentQuestion.options" :key="i">
-            <button class="option" @click="vote(i)" x-text="opt"></button>
-          </template>
-        </div>
-      </template>
-
-      <template x-if="currentQuestion.type === 'rating'">
-        <div class="rating-scale">
-          <template x-for="n in (currentQuestion.scaleMax - currentQuestion.scaleMin + 1)" :key="n">
-            <button class="option" @click="vote(currentQuestion.scaleMin + n - 1)" x-text="currentQuestion.scaleMin + n - 1"></button>
-          </template>
-        </div>
-      </template>
+<div class="page">
+  <header class="app-header">
+    <div class="container narrow">
+      <span class="brand">
+        <span class="logo" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M5 20V11M12 20V4M19 20v-6"/></svg>
+        </span>
+        LivePoll
+      </span>
+      <span class="spacer"></span>
+      <button class="icon-btn" x-show="roomCode && qrSvg" x-cloak @click="showQr = true" aria-label="Share this poll with a QR code" title="Share with a QR code">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h3v3M21 14v.01M14 21h.01M17 21h4v-4"/></svg>
+      </button>
     </div>
-  </template>
+  </header>
+
+  <div class="modal-backdrop" x-show="showQr" x-cloak x-transition.opacity @click.self="showQr = false" @keydown.escape.window="showQr = false">
+    <div class="card modal" role="dialog" aria-modal="true" aria-label="Share this poll">
+      <h2>Invite others</h2>
+      <p class="muted">Scan to open this poll</p>
+      <div class="qr-box" role="img" aria-label="QR code linking to this poll" x-html="qrSvg"></div>
+      <p class="share-link" x-text="voteUrlLabel"></p>
+      <div class="row">
+        <button class="btn primary" @click="copyLink()" x-text="copied ? 'Copied!' : 'Copy link'"></button>
+        <button class="btn" @click="showQr = false">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <main class="container narrow">
+    <template x-if="!roomCode">
+      <div class="card state">
+        <div class="icon closed"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16h.01"/></svg></div>
+        <h2>No room specified</h2>
+        <p>Check the link you were given and try again.</p>
+      </div>
+    </template>
+
+    <template x-if="roomCode && loadError">
+      <div class="alert error" x-text="loadError"></div>
+    </template>
+
+    <template x-if="roomCode && roomClosed && slides">
+      <section class="carousel" aria-roledescription="carousel" aria-label="Results"
+               @keydown.arrow-left.window="goTo(slide - 1)" @keydown.arrow-right.window="goTo(slide + 1)">
+        <template x-if="slides.length === 0">
+          <div class="card state"><h2>No questions to show</h2></div>
+        </template>
+        <template x-if="slides.length > 0">
+          <div>
+            <div class="carousel-track" x-ref="track" @scroll.passive="onScroll()">
+              <template x-for="(q, qi) in slides" :key="q.id">
+                <article class="carousel-slide">
+                  <div class="card slide-card">
+                    <div class="slide-eyebrow" x-text="'Question ' + (qi + 1)"></div>
+                    <h2 class="slide-title" x-text="q.prompt"></h2>
+
+                    <template x-if="q.type === 'choice' && q.display === 'donut'">
+                      <div class="donut-wrap">
+                        <div class="donut" role="img" aria-label="Donut chart of responses">
+                          <svg viewBox="0 0 42 42">
+                            <circle class="donut-ring" cx="21" cy="21" r="15.915"></circle>
+                              <circle class="donut-seg" cx="21" cy="21" r="15.915" x-show="q.options.length > 0" :stroke="donutColor(0)"
+                                      :stroke-dasharray="slideSeg(q, 0).dash + ' ' + (100 - slideSeg(q, 0).dash)" :stroke-dashoffset="slideSeg(q, 0).offset"></circle>
+                              <circle class="donut-seg" cx="21" cy="21" r="15.915" x-show="q.options.length > 1" :stroke="donutColor(1)"
+                                      :stroke-dasharray="slideSeg(q, 1).dash + ' ' + (100 - slideSeg(q, 1).dash)" :stroke-dashoffset="slideSeg(q, 1).offset"></circle>
+                              <circle class="donut-seg" cx="21" cy="21" r="15.915" x-show="q.options.length > 2" :stroke="donutColor(2)"
+                                      :stroke-dasharray="slideSeg(q, 2).dash + ' ' + (100 - slideSeg(q, 2).dash)" :stroke-dashoffset="slideSeg(q, 2).offset"></circle>
+                              <circle class="donut-seg" cx="21" cy="21" r="15.915" x-show="q.options.length > 3" :stroke="donutColor(3)"
+                                      :stroke-dasharray="slideSeg(q, 3).dash + ' ' + (100 - slideSeg(q, 3).dash)" :stroke-dashoffset="slideSeg(q, 3).offset"></circle>
+                              <circle class="donut-seg" cx="21" cy="21" r="15.915" x-show="q.options.length > 4" :stroke="donutColor(4)"
+                                      :stroke-dasharray="slideSeg(q, 4).dash + ' ' + (100 - slideSeg(q, 4).dash)" :stroke-dashoffset="slideSeg(q, 4).offset"></circle>
+                              <circle class="donut-seg" cx="21" cy="21" r="15.915" x-show="q.options.length > 5" :stroke="donutColor(5)"
+                                      :stroke-dasharray="slideSeg(q, 5).dash + ' ' + (100 - slideSeg(q, 5).dash)" :stroke-dashoffset="slideSeg(q, 5).offset"></circle>
+                              <circle class="donut-seg" cx="21" cy="21" r="15.915" x-show="q.options.length > 6" :stroke="donutColor(6)"
+                                      :stroke-dasharray="slideSeg(q, 6).dash + ' ' + (100 - slideSeg(q, 6).dash)" :stroke-dashoffset="slideSeg(q, 6).offset"></circle>
+                              <circle class="donut-seg" cx="21" cy="21" r="15.915" x-show="q.options.length > 7" :stroke="donutColor(7)"
+                                      :stroke-dasharray="slideSeg(q, 7).dash + ' ' + (100 - slideSeg(q, 7).dash)" :stroke-dashoffset="slideSeg(q, 7).offset"></circle>
+                              <circle class="donut-seg" cx="21" cy="21" r="15.915" x-show="q.options.length > 8" :stroke="donutColor(8)"
+                                      :stroke-dasharray="slideSeg(q, 8).dash + ' ' + (100 - slideSeg(q, 8).dash)" :stroke-dashoffset="slideSeg(q, 8).offset"></circle>
+                              <circle class="donut-seg" cx="21" cy="21" r="15.915" x-show="q.options.length > 9" :stroke="donutColor(9)"
+                                      :stroke-dasharray="slideSeg(q, 9).dash + ' ' + (100 - slideSeg(q, 9).dash)" :stroke-dashoffset="slideSeg(q, 9).offset"></circle>
+                              <circle class="donut-seg" cx="21" cy="21" r="15.915" x-show="q.options.length > 10" :stroke="donutColor(10)"
+                                      :stroke-dasharray="slideSeg(q, 10).dash + ' ' + (100 - slideSeg(q, 10).dash)" :stroke-dashoffset="slideSeg(q, 10).offset"></circle>
+                              <circle class="donut-seg" cx="21" cy="21" r="15.915" x-show="q.options.length > 11" :stroke="donutColor(11)"
+                                      :stroke-dasharray="slideSeg(q, 11).dash + ' ' + (100 - slideSeg(q, 11).dash)" :stroke-dashoffset="slideSeg(q, 11).offset"></circle>
+                          </svg>
+                          <div class="donut-center"><strong x-text="q.tally.totalVotes || 0"></strong><span x-text="(q.tally.totalVotes || 0) === 1 ? 'response' : 'responses'"></span></div>
+                        </div>
+                        <ul class="donut-legend">
+                          <template x-for="(opt, i) in q.options" :key="i">
+                            <li :class="{ correct: (q.correct || []).includes(i) }">
+                              <span class="swatch" :style="`background:${donutColor(i)}`"></span>
+                              <span x-text="opt + ((q.correct || []).includes(i) ? ' \u2713' : '')"></span>
+                              <span class="num"><span x-text="slideCount(q, i)"></span><small x-text="slidePct(q, i) + '%'"></small></span>
+                            </li>
+                          </template>
+                        </ul>
+                      </div>
+                    </template>
+
+                    <template x-if="q.type === 'choice' && q.display !== 'donut'">
+                      <div>
+                        <template x-for="(opt, i) in q.options" :key="i">
+                          <div class="sbar" :class="{ leader: slideLeader(q, i), correct: (q.correct || []).includes(i) }">
+                            <div class="sbar-head">
+                              <span class="label" x-text="opt"></span>
+                              <span class="count"><span x-text="slideCount(q, i)"></span><small x-text="slidePct(q, i) + '%'"></small></span>
+                            </div>
+                            <div class="sbar-track"><div class="sbar-fill" :style="`width: ${slidePct(q, i)}%`"></div></div>
+                          </div>
+                        </template>
+                      </div>
+                    </template>
+
+                    <template x-if="q.type === 'rating'">
+                      <div>
+                        <template x-for="v in slideValues(q)" :key="v">
+                          <div class="sbar" :class="{ leader: slideLeader(q, v) }">
+                            <div class="sbar-head">
+                              <span class="label" x-text="v"></span>
+                              <span class="count" x-text="slideCount(q, v)"></span>
+                            </div>
+                            <div class="sbar-track"><div class="sbar-fill" :style="`width: ${slidePct(q, v)}%`"></div></div>
+                          </div>
+                        </template>
+                        <div class="slide-average">
+                          <strong x-text="fmtAvg(q.tally.average)"></strong>
+                          <span class="muted">average rating</span>
+                        </div>
+                      </div>
+                    </template>
+
+                    <p class="slide-total" x-text="(q.tally.totalVotes || 0) + ((q.tally.totalVotes || 0) === 1 ? ' response' : ' responses')"></p>
+                  </div>
+                </article>
+              </template>
+            </div>
+
+            <div class="carousel-nav">
+              <button class="btn sm" @click="goTo(slide - 1)" :disabled="slide === 0" aria-label="Previous question">&lsaquo; Prev</button>
+              <button class="btn sm" @click="goTo(slide + 1)" :disabled="slide === slides.length - 1" aria-label="Next question">Next &rsaquo;</button>
+            </div>
+          </div>
+        </template>
+      </section>
+    </template>
+
+    <template x-if="roomCode && !roomClosed && !loadError && !currentQuestion">
+      <div class="card state">
+        <div class="icon"><svg class="pulse" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></div>
+        <h2>Waiting for the next question</h2>
+        <p>This page updates automatically &mdash; no need to refresh.</p>
+      </div>
+    </template>
+
+    <template x-if="!roomClosed && currentQuestion && hasVoted">
+      <div>
+        <div class="card state">
+          <div class="icon ok"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></div>
+          <h2>Thanks, your vote is in</h2>
+          <template x-if="currentQuestion.correct">
+            <p class="correct-note"><strong>Correct answer:</strong> <span x-text="correctLabel()"></span></p>
+          </template>
+          <button class="btn" style="margin-top:16px" @click="changeVote()">Change my vote</button>
+        </div>
+
+        <template x-if="currentQuestion.resultsHidden">
+          <div class="card state" style="margin-top:16px">
+            <div class="vote-count" x-text="tally.totalVotes || 0"></div>
+            <p x-text="(tally.totalVotes || 0) === 1 ? 'response received' : 'responses received'"></p>
+          </div>
+        </template>
+
+        <template x-if="!currentQuestion.resultsHidden">
+          <div class="card slide-card" style="margin-top:16px; min-height:0">
+            <div class="slide-eyebrow">Live results</div>
+            <h2 class="slide-title" x-text="liveQuestion.prompt"></h2>
+      <template x-if="liveQuestion.type === 'choice' && liveQuestion.display === 'donut'">
+                            <div class="donut-wrap">
+                              <div class="donut" role="img" aria-label="Donut chart of responses">
+                                <svg viewBox="0 0 42 42">
+                                  <circle class="donut-ring" cx="21" cy="21" r="15.915"></circle>
+                                    <circle class="donut-seg" cx="21" cy="21" r="15.915" x-show="liveQuestion.options.length > 0" :stroke="donutColor(0)"
+                                            :stroke-dasharray="slideSeg(liveQuestion, 0).dash + ' ' + (100 - slideSeg(liveQuestion, 0).dash)" :stroke-dashoffset="slideSeg(liveQuestion, 0).offset"></circle>
+                                    <circle class="donut-seg" cx="21" cy="21" r="15.915" x-show="liveQuestion.options.length > 1" :stroke="donutColor(1)"
+                                            :stroke-dasharray="slideSeg(liveQuestion, 1).dash + ' ' + (100 - slideSeg(liveQuestion, 1).dash)" :stroke-dashoffset="slideSeg(liveQuestion, 1).offset"></circle>
+                                    <circle class="donut-seg" cx="21" cy="21" r="15.915" x-show="liveQuestion.options.length > 2" :stroke="donutColor(2)"
+                                            :stroke-dasharray="slideSeg(liveQuestion, 2).dash + ' ' + (100 - slideSeg(liveQuestion, 2).dash)" :stroke-dashoffset="slideSeg(liveQuestion, 2).offset"></circle>
+                                    <circle class="donut-seg" cx="21" cy="21" r="15.915" x-show="liveQuestion.options.length > 3" :stroke="donutColor(3)"
+                                            :stroke-dasharray="slideSeg(liveQuestion, 3).dash + ' ' + (100 - slideSeg(liveQuestion, 3).dash)" :stroke-dashoffset="slideSeg(liveQuestion, 3).offset"></circle>
+                                    <circle class="donut-seg" cx="21" cy="21" r="15.915" x-show="liveQuestion.options.length > 4" :stroke="donutColor(4)"
+                                            :stroke-dasharray="slideSeg(liveQuestion, 4).dash + ' ' + (100 - slideSeg(liveQuestion, 4).dash)" :stroke-dashoffset="slideSeg(liveQuestion, 4).offset"></circle>
+                                    <circle class="donut-seg" cx="21" cy="21" r="15.915" x-show="liveQuestion.options.length > 5" :stroke="donutColor(5)"
+                                            :stroke-dasharray="slideSeg(liveQuestion, 5).dash + ' ' + (100 - slideSeg(liveQuestion, 5).dash)" :stroke-dashoffset="slideSeg(liveQuestion, 5).offset"></circle>
+                                    <circle class="donut-seg" cx="21" cy="21" r="15.915" x-show="liveQuestion.options.length > 6" :stroke="donutColor(6)"
+                                            :stroke-dasharray="slideSeg(liveQuestion, 6).dash + ' ' + (100 - slideSeg(liveQuestion, 6).dash)" :stroke-dashoffset="slideSeg(liveQuestion, 6).offset"></circle>
+                                    <circle class="donut-seg" cx="21" cy="21" r="15.915" x-show="liveQuestion.options.length > 7" :stroke="donutColor(7)"
+                                            :stroke-dasharray="slideSeg(liveQuestion, 7).dash + ' ' + (100 - slideSeg(liveQuestion, 7).dash)" :stroke-dashoffset="slideSeg(liveQuestion, 7).offset"></circle>
+                                    <circle class="donut-seg" cx="21" cy="21" r="15.915" x-show="liveQuestion.options.length > 8" :stroke="donutColor(8)"
+                                            :stroke-dasharray="slideSeg(liveQuestion, 8).dash + ' ' + (100 - slideSeg(liveQuestion, 8).dash)" :stroke-dashoffset="slideSeg(liveQuestion, 8).offset"></circle>
+                                    <circle class="donut-seg" cx="21" cy="21" r="15.915" x-show="liveQuestion.options.length > 9" :stroke="donutColor(9)"
+                                            :stroke-dasharray="slideSeg(liveQuestion, 9).dash + ' ' + (100 - slideSeg(liveQuestion, 9).dash)" :stroke-dashoffset="slideSeg(liveQuestion, 9).offset"></circle>
+                                    <circle class="donut-seg" cx="21" cy="21" r="15.915" x-show="liveQuestion.options.length > 10" :stroke="donutColor(10)"
+                                            :stroke-dasharray="slideSeg(liveQuestion, 10).dash + ' ' + (100 - slideSeg(liveQuestion, 10).dash)" :stroke-dashoffset="slideSeg(liveQuestion, 10).offset"></circle>
+                                    <circle class="donut-seg" cx="21" cy="21" r="15.915" x-show="liveQuestion.options.length > 11" :stroke="donutColor(11)"
+                                            :stroke-dasharray="slideSeg(liveQuestion, 11).dash + ' ' + (100 - slideSeg(liveQuestion, 11).dash)" :stroke-dashoffset="slideSeg(liveQuestion, 11).offset"></circle>
+                                </svg>
+                                <div class="donut-center"><strong x-text="liveQuestion.tally.totalVotes || 0"></strong><span x-text="(liveQuestion.tally.totalVotes || 0) === 1 ? 'response' : 'responses'"></span></div>
+                              </div>
+                              <ul class="donut-legend">
+                                <template x-for="(opt, i) in liveQuestion.options" :key="i">
+                                  <li :class="{ correct: (liveQuestion.correct || []).includes(i) }">
+                                    <span class="swatch" :style="`background:${donutColor(i)}`"></span>
+                                    <span x-text="opt + ((liveQuestion.correct || []).includes(i) ? ' \u2713' : '')"></span>
+                                    <span class="num"><span x-text="slideCount(liveQuestion, i)"></span><small x-text="slidePct(liveQuestion, i) + '%'"></small></span>
+                                  </li>
+                                </template>
+                              </ul>
+                            </div>
+                          </template>
+
+                          <template x-if="liveQuestion.type === 'choice' && liveQuestion.display !== 'donut'">
+                            <div>
+                              <template x-for="(opt, i) in liveQuestion.options" :key="i">
+                                <div class="sbar" :class="{ leader: slideLeader(liveQuestion, i), correct: (liveQuestion.correct || []).includes(i) }">
+                                  <div class="sbar-head">
+                                    <span class="label" x-text="opt"></span>
+                                    <span class="count"><span x-text="slideCount(liveQuestion, i)"></span><small x-text="slidePct(liveQuestion, i) + '%'"></small></span>
+                                  </div>
+                                  <div class="sbar-track"><div class="sbar-fill" :style="`width: ${slidePct(liveQuestion, i)}%`"></div></div>
+                                </div>
+                              </template>
+                            </div>
+                          </template>
+
+                          <template x-if="liveQuestion.type === 'rating'">
+                            <div>
+                              <template x-for="v in slideValues(liveQuestion)" :key="v">
+                                <div class="sbar" :class="{ leader: slideLeader(liveQuestion, v) }">
+                                  <div class="sbar-head">
+                                    <span class="label" x-text="v"></span>
+                                    <span class="count" x-text="slideCount(liveQuestion, v)"></span>
+                                  </div>
+                                  <div class="sbar-track"><div class="sbar-fill" :style="`width: ${slidePct(liveQuestion, v)}%`"></div></div>
+                                </div>
+                              </template>
+                              <div class="slide-average">
+                                <strong x-text="fmtAvg(liveQuestion.tally.average)"></strong>
+                                <span class="muted">average rating</span>
+                              </div>
+                            </div>
+                          </template>
+
+                          <p class="slide-total" x-text="(liveQuestion.tally.totalVotes || 0) + ((liveQuestion.tally.totalVotes || 0) === 1 ? ' response' : ' responses')"></p>
+          </div>
+        </template>
+      </div>
+    </template>
+
+    <template x-if="!roomClosed && currentQuestion && !hasVoted">
+      <div>
+        <h1 class="prompt" x-text="currentQuestion.prompt"></h1>
+
+        <template x-if="voteError">
+          <div class="alert error" style="margin-bottom:16px" x-text="voteError"></div>
+        </template>
+        <template x-if="currentQuestion.correct">
+          <p class="correct-note" style="margin-bottom:12px"><strong>Correct answer:</strong> <span x-text="correctLabel()"></span></p>
+        </template>
+
+        <template x-if="currentQuestion.type === 'choice'">
+          <div class="choices">
+            <template x-if="!currentQuestion.multi">
+              <div class="choices">
+                <template x-for="(opt, i) in currentQuestion.options" :key="i">
+                  <button class="choice" :class="{ picked: myVote === i }" @click="vote(i)" :disabled="submitting" x-text="opt"></button>
+                </template>
+              </div>
+            </template>
+            <template x-if="currentQuestion.multi">
+              <div class="choices">
+                <p class="hint" style="margin-bottom:0">Select all that apply</p>
+                <template x-for="(opt, i) in currentQuestion.options" :key="i">
+                  <button class="choice" :class="{ picked: picks.includes(i) }" :aria-pressed="picks.includes(i)" @click="togglePick(i)" :disabled="submitting">
+                    <span class="tick" aria-hidden="true" x-text="picks.includes(i) ? '✓' : ''"></span>
+                    <span x-text="opt"></span>
+                  </button>
+                </template>
+                <button class="btn primary lg" @click="vote(picks.slice().sort((a, b) => a - b))" :disabled="submitting || picks.length === 0">Submit</button>
+              </div>
+            </template>
+          </div>
+        </template>
+
+        <template x-if="currentQuestion.type === 'rating'">
+          <div>
+            <p class="hint" x-text="'Pick a number from ' + currentQuestion.scaleMin + ' to ' + currentQuestion.scaleMax"></p>
+            <div class="rating-grid">
+              <template x-for="n in (currentQuestion.scaleMax - currentQuestion.scaleMin + 1)" :key="n">
+                <button class="rate" :class="{ picked: myVote === currentQuestion.scaleMin + n - 1 }" @click="vote(currentQuestion.scaleMin + n - 1)" :disabled="submitting" x-text="currentQuestion.scaleMin + n - 1"></button>
+              </template>
+            </div>
+          </div>
+        </template>
+      </div>
+    </template>
+  </main>
+
+  <footer class="footer">Votes are anonymous</footer>
+</div>
 
 <script>
 function voteApp() {
   return {
+    ...LivePoll.carouselMixin(),
     roomCode: null,
     deviceId: null,
     currentQuestion: null,
     hasVoted: false,
     roomClosed: false,
+    submitting: false,
+    picks: [],
+    myVote: null,
+    tally: { counts: [], totalVotes: 0 },
+    liveQuestion: null,
+    voteError: null,
+    loadError: null,
+    showQr: false,
+    qrSvg: '',
+    voteUrlLabel: '',
+    voteUrl: '',
+    copied: false,
 
     async init() {
       const parts = window.location.pathname.split('/').filter(Boolean);
       this.roomCode = parts.length > 1 ? parts[1] : null;
       if (!this.roomCode) return;
       this.deviceId = LivePoll.getDeviceId();
+      this.buildQr();
 
-      const state = await LivePoll.api(`get-room-state?roomCode=${encodeURIComponent(this.roomCode)}`);
-      this.roomClosed = state.status === 'closed';
-      this.applyState(state.currentQuestion);
+      try {
+        const state = await LivePoll.api(`get-room-state?roomCode=${encodeURIComponent(this.roomCode)}`);
+        this.roomClosed = state.status === 'closed';
+        this.applyState(state.currentQuestion);
+        this.setTally(state.tally);
+        if (this.roomClosed) await this.loadClosedResults();
+      } catch (err) {
+        this.loadError = err.status === 404 ? "We couldn't find that room." : ((err && err.message) || 'Something went wrong');
+        return;
+      }
 
       LivePoll.subscribeRoom(this.roomCode, {
         state: (data) => {
           this.roomClosed = data.status === 'closed';
           this.applyState(data.currentQuestion);
+          this.setTally(data.initialTally);
+          if (this.roomClosed) this.loadClosedResults().catch((err) => { this.loadError = (err && err.message) || 'Something went wrong'; });
+        },
+        tally: (data) => {
+          if (this.currentQuestion && data.questionId === this.currentQuestion.id) this.setTally(data);
         },
         reset: (data) => this.onReset(data),
-      });
+      }, { clientId: this.deviceId });
+    },
+
+    buildQr() {
+      try {
+        this.voteUrl = `${window.location.origin}/vote/${encodeURIComponent(this.roomCode)}`;
+        const qr = qrcode(0, 'M');
+        qr.addData(this.voteUrl);
+        qr.make();
+        this.qrSvg = qr.createSvgTag({ scalable: true, margin: 0 });
+        this.voteUrlLabel = this.voteUrl.replace(/^https?:\/\//, '');
+      } catch (err) {
+        this.qrSvg = '';
+      }
+    },
+
+    async copyLink() {
+      if (await LivePoll.copyText(this.voteUrl)) {
+        this.copied = true;
+        setTimeout(() => { this.copied = false; }, 1500);
+      }
     },
 
     applyState(question) {
+      const sameQuestion = question && this.currentQuestion && question.id === this.currentQuestion.id;
       this.currentQuestion = question;
+      this.refreshLive();
+      if (sameQuestion) return;
+      this.picks = [];
+      this.voteError = null;
       this.hasVoted = question ? !!localStorage.getItem(`livepoll_voted_${question.id}`) : false;
+      this.myVote = question ? this.storedVote(question.id) : null;
+    },
+
+    setTally(t) {
+      this.tally = t && t.counts ? t : { counts: [], totalVotes: (t && t.totalVotes) || 0 };
+      this.refreshLive();
+    },
+
+    refreshLive() {
+      this.liveQuestion = this.currentQuestion ? { ...this.currentQuestion, tally: this.tally } : null;
+    },
+
+    storedVote(id) {
+      try { return JSON.parse(localStorage.getItem(`livepoll_vote_${id}`)); } catch { return null; }
+    },
+
+    changeVote() {
+      this.picks = Array.isArray(this.myVote) ? [...this.myVote] : [];
+      this.hasVoted = false;
+    },
+
+    correctLabel() {
+      const q = this.currentQuestion;
+      return (q.correct || []).map((i) => q.options[i]).join(', ');
     },
 
     onReset(data) {
       if (data.questionId) {
         localStorage.removeItem(`livepoll_voted_${data.questionId}`);
-        if (this.currentQuestion && this.currentQuestion.id === data.questionId) this.hasVoted = false;
+        localStorage.removeItem(`livepoll_vote_${data.questionId}`);
+        if (this.currentQuestion && this.currentQuestion.id === data.questionId) { this.hasVoted = false; this.myVote = null; this.picks = []; }
       } else {
         for (const key of Object.keys(localStorage)) {
-          if (key.startsWith('livepoll_voted_')) localStorage.removeItem(key);
+          if (key.startsWith('livepoll_voted_') || key.startsWith('livepoll_vote_')) localStorage.removeItem(key);
         }
         this.hasVoted = false;
+        this.myVote = null;
+        this.picks = [];
       }
     },
 
+    togglePick(i) {
+      this.picks = this.picks.includes(i) ? this.picks.filter((n) => n !== i) : [...this.picks, i];
+    },
+
     async vote(value) {
+      if (this.submitting) return;
+      this.submitting = true;
+      this.voteError = null;
       try {
         await LivePoll.api('vote', {
           method: 'POST',
           body: JSON.stringify({ roomCode: this.roomCode, questionId: this.currentQuestion.id, deviceId: this.deviceId, value }),
         });
         localStorage.setItem(`livepoll_voted_${this.currentQuestion.id}`, '1');
+        localStorage.setItem(`livepoll_vote_${this.currentQuestion.id}`, JSON.stringify(value));
+        this.myVote = value;
         this.hasVoted = true;
       } catch (err) {
-        if (err.status === 409) {
-          localStorage.setItem(`livepoll_voted_${this.currentQuestion.id}`, '1');
-          this.hasVoted = true;
-        } else {
-          alert(err.message);
-        }
+        this.voteError = (err && err.message) || 'Could not submit your vote. Please try again.';
+      } finally {
+        this.submitting = false;
       }
     },
   };

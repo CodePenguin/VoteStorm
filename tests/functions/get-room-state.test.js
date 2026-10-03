@@ -46,6 +46,22 @@ describe('get-room-state function', () => {
     expect(res.statusCode).toBe(404);
   });
 
+  it('reports showConnect: false while a question is live, true once the presenter overrides it', async () => {
+    let res = await handler({ httpMethod: 'GET', queryStringParameters: { roomCode } });
+    expect(JSON.parse(res.body).showConnect).toBe(false);
+    const db = createDb();
+    await db.execute({ sql: 'UPDATE rooms SET show_connect = 1 WHERE room_code = ?', args: [roomCode] });
+    res = await handler({ httpMethod: 'GET', queryStringParameters: { roomCode } });
+    expect(JSON.parse(res.body).showConnect).toBe(true);
+  });
+
+  it('reports showConnect: true for a lobby with no current question', async () => {
+    const db = createDb();
+    await db.execute({ sql: "UPDATE rooms SET current_question_id = NULL, status = 'lobby' WHERE room_code = ?", args: [roomCode] });
+    const res = await handler({ httpMethod: 'GET', queryStringParameters: { roomCode } });
+    expect(JSON.parse(res.body).showConnect).toBe(true);
+  });
+
   it('returns a clean 404 (not a 500) against a completely fresh database with no tables yet', async () => {
     // Point at a brand-new SQLite file that has never had initSchema() run
     // against it. Without the fix, this throws an unhandled

@@ -1,7 +1,8 @@
-import { createDb, initSchema, getRoomByAdminKeyHash, touchRoomActivity } from '../../lib/db.js';
+import { createDb, initSchema, getRoomByAdminKeyHash, touchRoomActivity, connectVisible } from '../../lib/db.js';
 import { hashAdminKey } from '../../lib/roomCode.js';
 import { computeTally } from '../../lib/tally.js';
 import { publishEvent } from '../../lib/realtime.js';
+import { shapeQuestion, publicTally } from '../../lib/question.js';
 import { json } from '../../lib/http.js';
 
 export async function handler(event) {
@@ -34,15 +35,15 @@ export async function handler(event) {
   }
 
   if (event.httpMethod === 'POST') {
-    const { type, prompt, options, scaleMin, scaleMax } = bodyData;
+    const { type, prompt, options, scaleMin, scaleMax, multi, resultsHidden, correct, display } = bodyData;
     const orderResult = await db.execute({
       sql: 'SELECT COALESCE(MAX(order_index), -1) + 1 AS nextIndex FROM questions WHERE room_code = ?',
       args: [room.room_code],
     });
     const orderIndex = orderResult.rows[0].nextIndex;
     const insertResult = await db.execute({
-      sql: `INSERT INTO questions (room_code, order_index, type, prompt, options, scale_min, scale_max, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      sql: `INSERT INTO questions (room_code, order_index, type, prompt, options, scale_min, scale_max, multi, results_hidden, correct, display, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       args: [
         room.room_code,
         orderIndex,
@@ -51,6 +52,10 @@ export async function handler(event) {
         type === 'choice' ? JSON.stringify(options) : null,
         type === 'rating' ? (scaleMin ?? 1) : null,
         type === 'rating' ? (scaleMax ?? 5) : null,
+        type === 'choice' && multi ? 1 : 0,
+        resultsHidden ? 1 : 0,
+        type === 'choice' && Array.isArray(correct) && correct.length ? JSON.stringify([...new Set(correct.map(Number).filter((n) => Number.isInteger(n) && n >= 0 && n < (options || []).length))].sort((a, b) => a - b)) : null,
+        type === 'choice' && display === 'donut' ? 'donut' : 'bars',
         Date.now(),
       ],
     });
@@ -73,6 +78,83 @@ export async function handler(event) {
       await publishEvent(room.room_code, 'tally', { questionId, ...tally });
       await publishEvent(room.room_code, 'reset', { questionId });
       return json(200, { ok: true });
+    }
+
+    if (bodyData.edit) {
+      const e = bodyData.edit;
+      const prompt = typeof e.prompt === 'string' ? e.prompt.trim() : '';
+      if (!prompt) return json(400, { error: 'A prompt is required' });
+      if (e.type !== 'choice' && e.type !== 'rating') return json(400, { error: 'Invalid question type' });
+
+      let options = null;
+      let scaleMin = null;
+      let scaleMax = null;
+      let multi = 0;
+      let correct = null;
+      let display = 'bars';
+      if (e.type === 'choice') {
+        options = Array.isArray(e.options) ? e.options.map((o) => String(o).trim()).filter(Boolean) : [];
+        if (options.length < 2) return json(400, { error: 'At least two options are required' });
+        multi = e.multi ? 1 : 0;
+        display = e.display === 'donut' ? 'donut' : 'bars';
+        const picked = Array.isArray(e.correct) ? e.correct.map(Number).filter((n) => Number.isInteger(n) && n >= 0 && n < options.length) : [];
+        correct = picked.length ? JSON.stringify([...new Set(picked)].sort((a, b) => a - b)) : null;
+      } else {
+        scaleMin = Number.isInteger(e.scaleMin) ? e.scaleMin : 1;
+        scaleMax = Number.isInteger(e.scaleMax) ? e.scaleMax : 5;
+        if (scaleMin >= scaleMax) return json(400, { error: 'Scale max must be greater than min' });
+      }
+
+      // Votes only keep their meaning when the shape of the question is unchanged.
+      const oldOptions = question.options ? JSON.parse(question.options) : null;
+      const structural = e.type !== question.type
+        || (e.type === 'choice'
+          ? !!question.multi !== !!multi || (oldOptions ? oldOptions.length : 0) !== options.length
+          : Number(question.scale_min) !== scaleMin || Number(question.scale_max) !== scaleMax);
+      const countResult = await db.execute({ sql: 'SELECT COUNT(*) AS n FROM votes WHERE question_id = ?', args: [questionId] });
+      const voteCount = Number(countResult.rows[0].n);
+      const clearing = structural && voteCount > 0;
+      if (clearing && !e.clearVotes) {
+        return json(409, {
+          error: `Saving these changes will clear ${voteCount} vote${voteCount === 1 ? '' : 's'} on this question.`,
+          code: 'needs_clear',
+          votes: voteCount,
+        });
+      }
+
+      await db.execute({
+        sql: `UPDATE questions SET type = ?, prompt = ?, options = ?, scale_min = ?, scale_max = ?, multi = ?, correct = ?, display = ?,
+              results_hidden = ?, answer_shown = CASE WHEN ? IS NULL THEN 0 ELSE answer_shown END WHERE id = ? AND room_code = ?`,
+        args: [e.type, prompt, options ? JSON.stringify(options) : null, scaleMin, scaleMax, multi, correct, display, e.resultsHidden ? 1 : 0, correct, questionId, room.room_code],
+      });
+      if (clearing) await db.execute({ sql: 'DELETE FROM votes WHERE question_id = ?', args: [questionId] });
+
+      const updated = (await db.execute({ sql: 'SELECT * FROM questions WHERE id = ?', args: [questionId] })).rows[0];
+      const updatedVotes = (await db.execute({ sql: 'SELECT * FROM votes WHERE question_id = ?', args: [questionId] })).rows;
+      const reveal = room.status === 'closed';
+      const updatedTally = publicTally(updated, computeTally(updated, updatedVotes), { reveal });
+
+      let current = null;
+      let currentTally = null;
+      if (room.current_question_id) {
+        const currentRow = (await db.execute({ sql: 'SELECT * FROM questions WHERE id = ?', args: [room.current_question_id] })).rows[0];
+        if (currentRow) {
+          const currentVotes = (await db.execute({ sql: 'SELECT * FROM votes WHERE question_id = ?', args: [currentRow.id] })).rows;
+          current = shapeQuestion(currentRow, { reveal });
+          currentTally = publicTally(currentRow, computeTally(currentRow, currentVotes), { reveal });
+        }
+      }
+      await publishEvent(room.room_code, 'state', {
+        status: room.status,
+        currentQuestion: current,
+        initialTally: currentTally,
+        showConnect: connectVisible(room),
+      });
+      if (clearing) {
+        await publishEvent(room.room_code, 'tally', { questionId, ...updatedTally });
+        await publishEvent(room.room_code, 'reset', { questionId });
+      }
+      return json(200, { ok: true, cleared: clearing ? voteCount : 0 });
     }
 
     const fields = [];

@@ -5,7 +5,12 @@
 
 [[redirects]]
   from = "/admin/*"
-  to = "/admin/index.html"
+  to = "/presenter/:splat"
+  status = 301
+
+[[redirects]]
+  from = "/presenter/*"
+  to = "/presenter/index.html"
   status = 200
 
 [[redirects]]
