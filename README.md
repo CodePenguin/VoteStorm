@@ -29,14 +29,20 @@ cp .env.example .env   # then fill in the values below
 npm run dev            # Netlify dev server with the Vite app and functions
 ```
 
-Configuration (environment variables):
+Configuration is by environment variables. Locally they come from `.env`; when hosting, set them in your host (see [Hosting](#hosting)).
 
-| Variable | Purpose |
-|---|---|
-| `ABLY_API_KEY` | Real-time updates. The key needs the Publish, Subscribe and Presence capabilities. |
-| `TURSO_DATABASE_URL` | libSQL database URL. Omit it to use a local SQLite file at `data/local-dev.db`. |
-| `TURSO_AUTH_TOKEN` | Auth token for a remote libSQL database. |
-| `ALLOWED_LICENSE_ISSUERS` and related | Optional. Trusted license issuers; see [Licensing](docs/licensing.md). |
+| Variable | Required | Purpose |
+|---|---|---|
+| `ABLY_API_KEY` | Yes | Real-time updates. A server-side secret: browsers never see it, they get short-lived tokens limited to one room's channel. The key needs the **Publish**, **Subscribe** and **Presence** capabilities (Presence powers the "people connected" count). |
+| `TURSO_DATABASE_URL` | In production | libSQL database URL, such as `libsql://votestorm-yourname.turso.io`. If unset, a local SQLite file at `data/local-dev.db` is used. That is for development only: serverless functions have no persistent disk. |
+| `TURSO_AUTH_TOKEN` | With a remote database | Auth token for the libSQL database. |
+| `ALLOWED_LICENSE_ISSUERS` | For licensing | Comma-separated issuer URLs whose license tokens you trust. Without it, any license token is refused; people with no license run as the anonymous tier. |
+| `LICENSE_JWKS_JSON` | Optional | Inline public keys for the issuer. If unset, keys are discovered from the issuer (OIDC). |
+| `LICENSE_CLAIM_NAMESPACE` | Optional | Prefix for license claim names, for issuers such as Auth0 that require one. |
+| `LICENSE_AUDIENCE` | Optional | If set, a license's `aud` must match. |
+| `ANONYMOUS_LICENSE_JSON` | Optional | Limits for the anonymous tier. Default: rooms expire after 24 hours of inactivity, nothing else limited. |
+
+The license variables are all optional; see [docs/licensing.md](docs/licensing.md) for what they do and how to issue licenses. The database tables are created automatically on first use.
 
 Other commands:
 
@@ -45,6 +51,24 @@ npm test          # server and component tests
 npm run type-check
 npm run build     # production build into dist/
 ```
+
+## Hosting
+
+VoteStorm is a static single-page app plus serverless functions in Netlify Functions format, so Netlify is the supported host. The repository's `netlify.toml` already contains the build settings (`npm run build`, publish directory `dist`, functions in `netlify/functions`) and the routing, so no build configuration is needed.
+
+1. **Ably:** create an app and an API key with the Publish, Subscribe and Presence capabilities. Copy the key.
+2. **Database:** create a libSQL database, for example with [Turso](https://turso.tech):
+
+   ```sh
+   turso db create votestorm
+   turso db show votestorm --url       # TURSO_DATABASE_URL
+   turso db tokens create votestorm    # TURSO_AUTH_TOKEN
+   ```
+
+3. **Netlify:** create a site from the repository, then add the variables under *Site configuration, Environment variables* (or with `netlify env:set NAME value`). At minimum set `ABLY_API_KEY`, `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN`, and add the license variables if you use licensing. Mark them as secrets. Netlify needs Node.js 20 or newer (set `NODE_VERSION=20` if your site defaults to something older).
+4. **Deploy.** Environment variable changes only take effect on the next deploy, so redeploy after changing any of them.
+
+Never commit `.env` or your keys. Without `TURSO_DATABASE_URL` a hosted deployment would try to use a local file that does not persist between function runs, so rooms would disappear.
 
 ## Licensing
 
