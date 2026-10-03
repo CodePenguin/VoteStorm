@@ -25,7 +25,7 @@ describe('results key', () => {
   let q2;
 
   beforeEach(async () => {
-    const dir = mkdtempSync(path.join(tmpdir(), 'livepoll-test-'));
+    const dir = mkdtempSync(path.join(tmpdir(), 'votestorm-test-'));
     process.env.TURSO_DATABASE_URL = `file:${path.join(dir, 'test.db')}`;
     const created = JSON.parse((await createRoom({ httpMethod: 'POST' })).body);
     adminKey = created.adminKey;

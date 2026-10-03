@@ -7,14 +7,13 @@ import {
   initSchema,
   getRoomByCode,
   getRoomByAdminKeyHash,
-  todayDateString,
   touchRoomActivity,
   deleteRoomCascade,
   sweepExpiredRooms,
 } from '../../lib/db.js';
 
 function tempDbUrl() {
-  const dir = mkdtempSync(path.join(tmpdir(), 'livepoll-test-'));
+  const dir = mkdtempSync(path.join(tmpdir(), 'votestorm-test-'));
   return `file:${path.join(dir, 'test.db')}`;
 }
 
@@ -53,7 +52,7 @@ describe('db', () => {
     expect(await getRoomByCode(db, 'NOPE00')).toBeNull();
   });
 
-  it('touchRoomActivity sets last_activity_date to today', async () => {
+  it('touchRoomActivity sets last_activity_at to now', async () => {
     const db = createDb(tempDbUrl());
     await initSchema(db);
     await db.execute({
@@ -62,7 +61,7 @@ describe('db', () => {
     });
     await touchRoomActivity(db, 'ROOM01');
     const room = await getRoomByCode(db, 'ROOM01');
-    expect(room.last_activity_date).toBe(todayDateString());
+    expect(Number(room.last_activity_at)).toBeGreaterThan(Date.now() - 60000);
   });
 
   it('deleteRoomCascade removes the room and its questions/votes', async () => {
@@ -90,31 +89,43 @@ describe('db', () => {
     expect(votes.rows).toHaveLength(0);
   });
 
-  it('sweepExpiredRooms deletes rooms inactive past the cutoff and leaves recent rooms alone', async () => {
+  it('sweepExpiredRooms removes rooms past their own inactivity window and leaves the rest alone', async () => {
     const db = createDb(tempDbUrl());
     await initSchema(db);
-
-    const oldDate = new Date();
-    oldDate.setDate(oldDate.getDate() - 15);
-    const oldDateStr = oldDate.toISOString().slice(0, 10);
-
-    await db.execute({
-      sql: `INSERT INTO rooms (admin_key_hash, room_code, status, created_at, last_activity_date) VALUES (?, ?, 'lobby', ?, ?)`,
-      args: ['old-hash', 'OLDROOM', Date.now(), oldDateStr],
+    const hour = 3600000;
+    const add = (hash, code, ageHours, windowHours) => db.execute({
+      sql: `INSERT INTO rooms (admin_key_hash, room_code, status, created_at, last_activity_at, inactivity_hours) VALUES (?, ?, 'lobby', ?, ?, ?)`,
+      args: [hash, code, Date.now() - 100 * hour, Date.now() - ageHours * hour, windowHours],
     });
-    await db.execute({
-      sql: `INSERT INTO rooms (admin_key_hash, room_code, status, created_at, last_activity_date) VALUES (?, ?, 'lobby', ?, ?)`,
-      args: ['new-hash', 'NEWROOM', Date.now(), todayDateString()],
-    });
+    await add('h1', 'OLD24', 25, 24);
+    await add('h2', 'NEW24', 23, 24);
+    await add('h3', 'LONGWIN', 100, 168);
+    await add('h4', 'SHORT1', 3, 2);
 
-    const deletedCount = await sweepExpiredRooms(db, 14);
-
-    expect(deletedCount).toBe(1);
-    expect(await getRoomByCode(db, 'OLDROOM')).toBeNull();
-    expect(await getRoomByCode(db, 'NEWROOM')).not.toBeNull();
+    expect(await sweepExpiredRooms(db)).toBe(2);
+    expect(await getRoomByCode(db, 'OLD24')).toBeNull();
+    expect(await getRoomByCode(db, 'SHORT1')).toBeNull();
+    expect(await getRoomByCode(db, 'NEW24')).not.toBeNull();
+    expect(await getRoomByCode(db, 'LONGWIN')).not.toBeNull();
   });
 
-  it('existing database files without last_activity_date get the column added by initSchema', async () => {
+  it('removes an expired room as soon as it is looked up, without waiting for a sweep', async () => {
+    const db = createDb(tempDbUrl());
+    await initSchema(db);
+    await db.execute({
+      sql: `INSERT INTO rooms (admin_key_hash, room_code, status, created_at, last_activity_at, inactivity_hours) VALUES (?, ?, 'lobby', ?, ?, 24)`,
+      args: ['hx', 'EXPIRD', Date.now(), Date.now() - 30 * 3600000],
+    });
+    await db.execute({
+      sql: `INSERT INTO questions (id, room_code, order_index, type, prompt, options, created_at) VALUES (9, 'EXPIRD', 0, 'choice', 'Q', '["a","b"]', ?)`,
+      args: [Date.now()],
+    });
+    expect(await getRoomByAdminKeyHash(db, 'hx')).toBeNull();
+    const leftovers = await db.execute({ sql: 'SELECT * FROM questions WHERE room_code = ?', args: ['EXPIRD'] });
+    expect(leftovers.rows).toHaveLength(0);
+  });
+
+  it('existing database files without last_activity_at get the column added and backfilled by initSchema', async () => {
     const dbUrl = tempDbUrl();
     const db = createDb(dbUrl);
     // Simulate a pre-existing database created before this column existed.
@@ -133,6 +144,6 @@ describe('db', () => {
     await initSchema(db);
     await touchRoomActivity(db, 'ROOM01');
     const room = await getRoomByCode(db, 'ROOM01');
-    expect(room.last_activity_date).toBe(todayDateString());
+    expect(Number(room.last_activity_at)).toBeGreaterThan(Date.now() - 60000);
   });
 });

@@ -10,7 +10,7 @@ describe('get-room-state function', () => {
   let roomCode;
 
   beforeEach(async () => {
-    const dir = mkdtempSync(path.join(tmpdir(), 'livepoll-test-'));
+    const dir = mkdtempSync(path.join(tmpdir(), 'votestorm-test-'));
     process.env.TURSO_DATABASE_URL = `file:${path.join(dir, 'test.db')}`;
     const db = createDb();
     await initSchema(db);
@@ -66,7 +66,7 @@ describe('get-room-state function', () => {
     // Point at a brand-new SQLite file that has never had initSchema() run
     // against it. Without the fix, this throws an unhandled
     // "no such table: rooms" instead of the intended 404.
-    const dir = mkdtempSync(path.join(tmpdir(), 'livepoll-test-fresh-'));
+    const dir = mkdtempSync(path.join(tmpdir(), 'votestorm-test-fresh-'));
     process.env.TURSO_DATABASE_URL = `file:${path.join(dir, 'fresh.db')}`;
 
     const res = await handler({ httpMethod: 'GET', queryStringParameters: { roomCode: 'ANY000' } });

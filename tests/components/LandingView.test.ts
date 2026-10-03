@@ -1,0 +1,84 @@
+// @vitest-environment jsdom
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { flushPromises, mount } from '@vue/test-utils';
+import { createMemoryHistory, createRouter } from 'vue-router';
+import { routes } from '@/router';
+
+const apiMock = vi.fn();
+vi.mock('@/api', () => ({
+  api: (...a: unknown[]) => apiMock(...a),
+  getDeviceId: () => 'd',
+  ApiError: class ApiError extends Error {},
+}));
+
+import LandingView from '@/views/LandingView.vue';
+import App from '@/App.vue';
+
+async function mountAt(url: string, component: object = LandingView) {
+  const router = createRouter({ history: createMemoryHistory(), routes });
+  router.push(url);
+  await router.isReady();
+  const wrapper = mount(component, { global: { plugins: [router] } });
+  await flushPromises();
+  return { wrapper, router };
+}
+
+describe('LandingView', () => {
+  beforeEach(() => {
+    apiMock.mockReset();
+  });
+
+  it('explains the three steps', async () => {
+    const { wrapper } = await mountAt('/');
+    expect(wrapper.findAll('.step').map((s) => s.find('h3').text())).toEqual(['Create', 'Share', 'Watch live']);
+  });
+
+  it('creates a room in one click and opens the presenter', async () => {
+    apiMock.mockResolvedValue({ adminKey: 'SECRETKEY', roomCode: 'ABC234' });
+    const { wrapper, router } = await mountAt('/');
+    await wrapper.find('button').trigger('click');
+    await flushPromises();
+    expect(apiMock).toHaveBeenCalledWith('create-room', { method: 'POST' });
+    await vi.waitFor(() => expect(router.currentRoute.value.fullPath).toBe('/presenter/SECRETKEY'), { timeout: 10000 });
+  });
+
+  it('points to the license page when room creation is refused because of the license', async () => {
+    apiMock.mockRejectedValue(Object.assign(new Error('This license has expired'), { code: 'license_invalid' }));
+    const { wrapper } = await mountAt('/');
+    await wrapper.find('button').trigger('click');
+    await flushPromises();
+    expect(wrapper.find('.alert.error').text()).toContain('This license has expired');
+    expect(wrapper.find('.alert.error a').attributes('href')).toBe('/license');
+  });
+
+  it('shows the error and lets the user try again when creating fails', async () => {
+    apiMock.mockRejectedValue(new Error('Database unavailable'));
+    const { wrapper, router } = await mountAt('/');
+    await wrapper.find('button').trigger('click');
+    await flushPromises();
+    expect(wrapper.find('.alert.error').text()).toBe('Database unavailable');
+    expect((wrapper.find('button').element as HTMLButtonElement).disabled).toBe(false);
+    expect(wrapper.find('button').text()).toBe('Create a room');
+    expect(router.currentRoute.value.fullPath).toBe('/');
+  });
+});
+
+describe('App shell', () => {
+  it('shows the Code Penguin footer on ordinary pages', async () => {
+    const { wrapper } = await mountAt('/', App);
+    expect(wrapper.find('.app-footer a').attributes('href')).toBe('https://codepenguin.com');
+  });
+
+  it('leaves the footer to the projector results screen', async () => {
+    apiMock.mockRejectedValue(new Error('x'));
+    const { wrapper } = await mountAt('/results/KEY', App);
+    expect(wrapper.find('.app-footer').exists()).toBe(false);
+    expect(wrapper.find('.results-page .footer .attribution a').attributes('href')).toBe('https://codepenguin.com');
+  });
+
+  it('shows a way home for unknown pages', async () => {
+    const { wrapper } = await mountAt('/no/such/page', App);
+    expect(wrapper.text()).toContain('Page not found');
+    expect(wrapper.find('a[href="/"]').exists()).toBe(true);
+  });
+});

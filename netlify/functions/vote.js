@@ -1,4 +1,5 @@
-import { createDb, initSchema, getRoomByCode } from '../../lib/db.js';
+import { createDb, initSchema, getRoomByCode, touchRoomActivity } from '../../lib/db.js';
+import { roomLicense } from '../../lib/license.js';
 import { computeTally } from '../../lib/tally.js';
 import { publishEvent } from '../../lib/realtime.js';
 import { publicTally } from '../../lib/question.js';
@@ -56,6 +57,19 @@ export async function handler(event) {
     }
   }
 
+  const { maxAudiencePerRoom } = roomLicense(room);
+  if (maxAudiencePerRoom) {
+    const audience = await db.execute({
+      sql: `SELECT COUNT(DISTINCT v.device_id) AS n, MAX(v.device_id = ?) AS mine
+            FROM votes v JOIN questions q ON q.id = v.question_id WHERE q.room_code = ?`,
+      args: [deviceId, room.room_code],
+    });
+    const { n, mine } = audience.rows[0];
+    if (!Number(mine) && Number(n) >= maxAudiencePerRoom) {
+      return json(403, { error: 'This room has reached its audience limit.', code: 'audience_full' });
+    }
+  }
+
   // A device may change its answer while the question is live: one row per device, replaced on resubmit.
   await db.execute({
     sql: `INSERT INTO votes (question_id, device_id, value, created_at) VALUES (?, ?, ?, ?)
@@ -63,6 +77,7 @@ export async function handler(event) {
     args: [questionId, deviceId, storedValue, Date.now()],
   });
 
+  await touchRoomActivity(db, room.room_code);
   const votesResult = await db.execute({
     sql: 'SELECT * FROM votes WHERE question_id = ?',
     args: [questionId],

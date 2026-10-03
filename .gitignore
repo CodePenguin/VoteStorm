@@ -2,3 +2,5 @@ node_modules/
 data/*.db
 .netlify/
 .env
+dist/
+votestorm-license-key*.json

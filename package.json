@@ -1,20 +1,42 @@
 {
-  "name": "livepoll",
+  "name": "votestorm",
   "version": "1.0.0",
+  "description": "VoteStorm: self-hosted live polling and audience interaction.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/CodePenguin/VoteStorm.git"
+  },
+  "homepage": "https://github.com/CodePenguin/VoteStorm",
+  "license": "GPL-3.0-only",
   "private": true,
   "type": "module",
   "engines": { "node": ">=20" },
   "scripts": {
+    "dev": "netlify dev",
+    "dev:app": "vite",
+    "build": "vue-tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "type-check": "vue-tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "dev": "netlify dev"
+    "license": "node scripts/generate-tokens.mjs"
   },
   "dependencies": {
     "@libsql/client": "^0.14.0",
-    "ably": "^2.3.1"
+    "ably": "^2.3.1",
+    "jose": "^6.2.12",
+    "qrcode-generator": "^1.4.4",
+    "vue": "^3.4.21",
+    "vue-router": "^4.3.0"
   },
   "devDependencies": {
-    "vitest": "^2.1.4",
-    "netlify-cli": "^17.38.0"
+    "@vitejs/plugin-vue": "^6.0.3",
+    "@vue/test-utils": "^2.4.5",
+    "jsdom": "^24.0.0",
+    "netlify-cli": "^17.38.0",
+    "typescript": "~5.4.0",
+    "vite": "7.1.11",
+    "vitest": "4.0.16",
+    "vue-tsc": "^2.0.11"
   }
 }

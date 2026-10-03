@@ -8,7 +8,7 @@ vi.mock('../../lib/realtime.js', () => ({
   createTokenRequest: vi.fn(),
 }));
 
-import { createDb, initSchema, getRoomByCode, todayDateString } from '../../lib/db.js';
+import { createDb, initSchema, getRoomByCode } from '../../lib/db.js';
 import { generateAdminKey, hashAdminKey, deriveRoomCode } from '../../lib/roomCode.js';
 import { handler } from '../../netlify/functions/admin-questions.js';
 import { publishEvent } from '../../lib/realtime.js';
@@ -17,7 +17,7 @@ describe('admin-questions function', () => {
   let adminKey;
 
   beforeEach(async () => {
-    const dir = mkdtempSync(path.join(tmpdir(), 'livepoll-test-'));
+    const dir = mkdtempSync(path.join(tmpdir(), 'votestorm-test-'));
     process.env.TURSO_DATABASE_URL = `file:${path.join(dir, 'test.db')}`;
     const db = createDb();
     await initSchema(db);
@@ -201,10 +201,10 @@ describe('admin-questions function', () => {
     expect(questions[0].prompt).toBe('Room A question');
   });
 
-  it('bumps last_activity_date to today on POST (create question)', async () => {
+  it('bumps last_activity_at to now on POST (create question)', async () => {
     const roomCode = deriveRoomCode(adminKey);
     const db = createDb();
-    await db.execute({ sql: 'UPDATE rooms SET last_activity_date = ? WHERE room_code = ?', args: ['2000-01-01', roomCode] });
+    await db.execute({ sql: 'UPDATE rooms SET last_activity_at = ? WHERE room_code = ?', args: [Date.now() - 3600000, roomCode] });
 
     await handler({
       httpMethod: 'POST',
@@ -212,10 +212,10 @@ describe('admin-questions function', () => {
     });
 
     const room = await getRoomByCode(db, roomCode);
-    expect(room.last_activity_date).toBe(todayDateString());
+    expect(Number(room.last_activity_at)).toBeGreaterThan(Date.now() - 60000);
   });
 
-  it('bumps last_activity_date to today on PATCH (edit question)', async () => {
+  it('bumps last_activity_at to now on PATCH (edit question)', async () => {
     const roomCode = deriveRoomCode(adminKey);
     const db = createDb();
     const createRes = await handler({
@@ -223,7 +223,7 @@ describe('admin-questions function', () => {
       body: JSON.stringify({ adminKey, type: 'choice', prompt: 'Pick one', options: ['A', 'B'] }),
     });
     const { id } = JSON.parse(createRes.body);
-    await db.execute({ sql: 'UPDATE rooms SET last_activity_date = ? WHERE room_code = ?', args: ['2000-01-01', roomCode] });
+    await db.execute({ sql: 'UPDATE rooms SET last_activity_at = ? WHERE room_code = ?', args: [Date.now() - 3600000, roomCode] });
 
     await handler({
       httpMethod: 'PATCH',
@@ -231,10 +231,10 @@ describe('admin-questions function', () => {
     });
 
     const room = await getRoomByCode(db, roomCode);
-    expect(room.last_activity_date).toBe(todayDateString());
+    expect(Number(room.last_activity_at)).toBeGreaterThan(Date.now() - 60000);
   });
 
-  it('bumps last_activity_date to today on DELETE (remove question)', async () => {
+  it('bumps last_activity_at to now on DELETE (remove question)', async () => {
     const roomCode = deriveRoomCode(adminKey);
     const db = createDb();
     const createRes = await handler({
@@ -242,12 +242,12 @@ describe('admin-questions function', () => {
       body: JSON.stringify({ adminKey, type: 'choice', prompt: 'Pick one', options: ['A', 'B'] }),
     });
     const { id } = JSON.parse(createRes.body);
-    await db.execute({ sql: 'UPDATE rooms SET last_activity_date = ? WHERE room_code = ?', args: ['2000-01-01', roomCode] });
+    await db.execute({ sql: 'UPDATE rooms SET last_activity_at = ? WHERE room_code = ?', args: [Date.now() - 3600000, roomCode] });
 
     await handler({ httpMethod: 'DELETE', body: JSON.stringify({ adminKey, questionId: id }) });
 
     const room = await getRoomByCode(db, roomCode);
-    expect(room.last_activity_date).toBe(todayDateString());
+    expect(Number(room.last_activity_at)).toBeGreaterThan(Date.now() - 60000);
   });
 });
 
@@ -269,7 +269,7 @@ describe('question editing', () => {
   const edit = (fields) => call({ edit: { type: 'choice', prompt: 'Pick', options: ['A', 'B'], ...fields } });
 
   beforeEach(async () => {
-    const dir = mkdtempSync(path.join(tmpdir(), 'livepoll-test-'));
+    const dir = mkdtempSync(path.join(tmpdir(), 'votestorm-test-'));
     process.env.TURSO_DATABASE_URL = `file:${path.join(dir, 'test.db')}`;
     const db = createDb();
     await initSchema(db);

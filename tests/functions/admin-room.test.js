@@ -9,7 +9,7 @@ vi.mock('../../lib/realtime.js', () => ({
 }));
 
 import { publishEvent } from '../../lib/realtime.js';
-import { createDb, initSchema, getRoomByCode, todayDateString } from '../../lib/db.js';
+import { createDb, initSchema, getRoomByCode } from '../../lib/db.js';
 import { generateAdminKey, hashAdminKey, deriveRoomCode } from '../../lib/roomCode.js';
 import { handler as questionsHandler } from '../../netlify/functions/admin-questions.js';
 import { handler } from '../../netlify/functions/admin-room.js';
@@ -18,7 +18,7 @@ describe('admin-room function', () => {
   let adminKey, roomCode, questionId;
 
   beforeEach(async () => {
-    const dir = mkdtempSync(path.join(tmpdir(), 'livepoll-test-'));
+    const dir = mkdtempSync(path.join(tmpdir(), 'votestorm-test-'));
     process.env.TURSO_DATABASE_URL = `file:${path.join(dir, 'test.db')}`;
     const db = createDb();
     await initSchema(db);
@@ -88,9 +88,9 @@ describe('admin-room function', () => {
     expect(publishedPayload.currentQuestion.options).toBeNull();
   });
 
-  it('bumps last_activity_date to today on PATCH (activate)', async () => {
+  it('bumps last_activity_at to now on PATCH (activate)', async () => {
     const db = createDb();
-    await db.execute({ sql: 'UPDATE rooms SET last_activity_date = ? WHERE room_code = ?', args: ['2000-01-01', roomCode] });
+    await db.execute({ sql: 'UPDATE rooms SET last_activity_at = ? WHERE room_code = ?', args: [Date.now() - 3600000, roomCode] });
 
     await handler({
       httpMethod: 'PATCH',
@@ -98,17 +98,17 @@ describe('admin-room function', () => {
     });
 
     const room = await getRoomByCode(db, roomCode);
-    expect(room.last_activity_date).toBe(todayDateString());
+    expect(Number(room.last_activity_at)).toBeGreaterThan(Date.now() - 60000);
   });
 
-  it('bumps last_activity_date to today on PATCH (reset action)', async () => {
+  it('bumps last_activity_at to now on PATCH (reset action)', async () => {
     const db = createDb();
-    await db.execute({ sql: 'UPDATE rooms SET last_activity_date = ? WHERE room_code = ?', args: ['2000-01-01', roomCode] });
+    await db.execute({ sql: 'UPDATE rooms SET last_activity_at = ? WHERE room_code = ?', args: [Date.now() - 3600000, roomCode] });
 
     await handler({ httpMethod: 'PATCH', body: JSON.stringify({ adminKey, action: 'reset' }) });
 
     const room = await getRoomByCode(db, roomCode);
-    expect(room.last_activity_date).toBe(todayDateString());
+    expect(Number(room.last_activity_at)).toBeGreaterThan(Date.now() - 60000);
   });
 
   it('deletes the room and its questions', async () => {

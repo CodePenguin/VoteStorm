@@ -1,5 +1,6 @@
 import { createDb, initSchema, getRoomByAdminKeyHash, touchRoomActivity, deleteRoomCascade, connectVisible } from '../../lib/db.js';
 import { hashAdminKey, deriveResultsKey, hashResultsKey } from '../../lib/roomCode.js';
+import { applyPresentedLicense, describeLicense } from '../../lib/license.js';
 import { computeTally } from '../../lib/tally.js';
 import { publishEvent } from '../../lib/realtime.js';
 import { shapeQuestion, publicTally } from '../../lib/question.js';
@@ -22,6 +23,8 @@ export async function handler(event) {
   const room = await getRoomByAdminKeyHash(db, hashAdminKey(adminKey));
   if (!room) return json(401, { error: 'Invalid admin key' });
 
+  const license = await applyPresentedLicense(db, room, event);
+
   if (event.httpMethod === 'GET') {
     const questionsResult = await db.execute({
       sql: 'SELECT * FROM questions WHERE room_code = ? ORDER BY order_index ASC',
@@ -37,7 +40,7 @@ export async function handler(event) {
     if (room.results_key_hash !== resultsKeyHash) {
       await db.execute({ sql: 'UPDATE rooms SET results_key_hash = ? WHERE room_code = ?', args: [resultsKeyHash, room.room_code] });
     }
-    return json(200, { room, questions, showConnect: connectVisible(room), resultsKey });
+    return json(200, { room, questions, showConnect: connectVisible(room), resultsKey, license: describeLicense(license) });
   }
 
   if (event.httpMethod === 'PATCH') {

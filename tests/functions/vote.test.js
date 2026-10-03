@@ -22,7 +22,7 @@ import { handler } from '../../netlify/functions/vote.js';
 
 describe('vote function', () => {
   beforeEach(async () => {
-    const dir = mkdtempSync(path.join(tmpdir(), 'livepoll-test-'));
+    const dir = mkdtempSync(path.join(tmpdir(), 'votestorm-test-'));
     process.env.TURSO_DATABASE_URL = `file:${path.join(dir, 'test.db')}`;
     const db = createDb();
     await initSchema(db);

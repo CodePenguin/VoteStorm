@@ -1,24 +1,22 @@
 [build]
-  publish = "public"
+  publish = "dist"
   functions = "netlify/functions"
-  command = "echo 'no build step'"
+  command = "npm run build"
+
+[dev]
+  autoLaunch = false
+  framework = "#custom"
+  command = "npm run dev:app"
+  targetPort = 5173
 
 [[redirects]]
   from = "/admin/*"
   to = "/presenter/:splat"
   status = 301
 
+# Single-page app: any other path that is not a real file serves the Vue app.
+# Function URLs under /.netlify/functions/ are handled before redirects.
 [[redirects]]
-  from = "/presenter/*"
-  to = "/presenter/index.html"
-  status = 200
-
-[[redirects]]
-  from = "/vote/*"
-  to = "/vote/index.html"
-  status = 200
-
-[[redirects]]
-  from = "/results/*"
-  to = "/results/index.html"
+  from = "/*"
+  to = "/index.html"
   status = 200

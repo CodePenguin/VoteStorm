@@ -3,6 +3,7 @@ import { hashAdminKey } from '../../lib/roomCode.js';
 import { computeTally } from '../../lib/tally.js';
 import { publishEvent } from '../../lib/realtime.js';
 import { shapeQuestion, publicTally } from '../../lib/question.js';
+import { applyPresentedLicense } from '../../lib/license.js';
 import { json } from '../../lib/http.js';
 
 export async function handler(event) {
@@ -22,6 +23,7 @@ export async function handler(event) {
   const room = await getRoomByAdminKeyHash(db, hashAdminKey(adminKey));
   if (!room) return json(401, { error: 'Invalid admin key' });
 
+  const license = await applyPresentedLicense(db, room, event);
   if (event.httpMethod !== 'GET') {
     await touchRoomActivity(db, room.room_code);
   }
@@ -36,6 +38,15 @@ export async function handler(event) {
 
   if (event.httpMethod === 'POST') {
     const { type, prompt, options, scaleMin, scaleMax, multi, resultsHidden, correct, display } = bodyData;
+    if (license.maxQuestionsPerRoom) {
+      const count = await db.execute({ sql: 'SELECT COUNT(*) AS n FROM questions WHERE room_code = ?', args: [room.room_code] });
+      if (Number(count.rows[0].n) >= license.maxQuestionsPerRoom) {
+        return json(403, {
+          error: `This room has reached its limit of ${license.maxQuestionsPerRoom} question${license.maxQuestionsPerRoom === 1 ? '' : 's'}.`,
+          code: 'question_limit',
+        });
+      }
+    }
     const orderResult = await db.execute({
       sql: 'SELECT COALESCE(MAX(order_index), -1) + 1 AS nextIndex FROM questions WHERE room_code = ?',
       args: [room.room_code],

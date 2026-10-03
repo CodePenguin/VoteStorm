@@ -254,3 +254,9 @@ a:hover { text-decoration: underline; }
 .carousel.large .donut { width: clamp(220px, 32vh, 380px); }
 .carousel.large .donut-center strong { font-size: clamp(2.5rem, 5vw, 4.5rem); }
 .carousel.large .donut-legend { font-size: clamp(1.1rem, 1.8vw, 1.7rem); gap: 14px; }
+
+/* ---- Attribution ---- */
+.attribution { margin: 0; font-size: .8rem; color: var(--text-muted); text-align: center; }
+.attribution a { color: inherit; text-decoration: underline; }
+.attribution a:hover { color: var(--text); }
+.app-footer { padding: 24px 16px 28px; }
