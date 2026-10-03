@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted } from 'vue';
 import { useRouter } from 'vue-router';
+import ActivityToast from './components/ActivityToast.vue';
 import AppFooter from './components/AppFooter.vue';
 import { takeLicenseFromHash, useLicense } from '@/composables/useLicense';
 
@@ -21,6 +22,7 @@ onMounted(async () => {
   <div class="app-shell">
     <RouterView />
     <AppFooter v-if="!$route.meta.ownFooter" />
+    <ActivityToast />
   </div>
 </template>
 

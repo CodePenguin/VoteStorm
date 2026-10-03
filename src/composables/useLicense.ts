@@ -38,7 +38,10 @@ async function activate(token: string): Promise<boolean> {
   busy.value = true;
   activateError.value = null;
   try {
-    const result = await api<LicenseSummary>('license-status', { headers: { authorization: `Bearer ${jwt}` } });
+    const result = await api<LicenseSummary>('license-status', {
+      headers: { authorization: `Bearer ${jwt}` },
+      activity: { working: 'Checking license\u2026', done: 'License activated' },
+    });
     setStoredLicense(jwt);
     hasToken.value = true;
     summary.value = result;

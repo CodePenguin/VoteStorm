@@ -225,15 +225,13 @@ onBeforeUnmount(() => ably?.close());
         </div>
       </div>
     </main>
-
-    <p class="vote-note">Votes are anonymous</p>
+
   </div>
 </template>
 
 <style>
 .vote-page { display: flex; flex-direction: column; }
-.vote-main { flex: 1; padding-top: 28px; padding-bottom: 24px; }
-.vote-note { text-align: center; padding: 12px; font-size: .8rem; color: var(--text-muted); }
+.vote-main { flex: 1; padding-top: 28px; padding-bottom: 24px; }
 .vote-page .prompt { font-size: clamp(1.4rem, 5.5vw, 1.8rem); margin-bottom: 20px; }
 .vote-page .hint { color: var(--text-muted); font-size: .9rem; margin-bottom: 16px; }
 .choices { display: grid; gap: 12px; }
