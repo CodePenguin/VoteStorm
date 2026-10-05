@@ -4,3 +4,5 @@ data/*.db
 .env
 dist/
 votestorm-license-key*.json
+.playwright-mcp/
+qa*.png

@@ -136,6 +136,15 @@ describe('PresenterView', () => {
     expect(patchCalls('admin-room')).toContainEqual({ adminKey: 'ADMINKEY', questionId: 2, resultsHidden: false });
   });
 
+  it('keeps the live controls above the results so they stay on screen with a long scale', async () => {
+    const { wrapper } = await mountPresenter();
+    await wrapper.findAll('.seg button')[1].trigger('click');
+    const html = wrapper.find('.present-now').html();
+    expect(html.indexOf('Hide results')).toBeGreaterThan(-1);
+    expect(html.indexOf('Hide results')).toBeLessThan(html.indexOf('sbar'));
+    expect(wrapper.find('.present-now .slide-total').exists()).toBe(false);
+  });
+
   it('reveals the correct answer for the live question', async () => {
     const { wrapper } = await mountPresenter();
     await wrapper.findAll('.seg button')[1].trigger('click');

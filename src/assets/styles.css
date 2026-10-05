@@ -234,7 +234,7 @@ a:hover { text-decoration: underline; }
 /* ---- Correct answers ---- */
 .sbar.correct .sbar-fill { background: var(--success); }
 .sbar.correct .sbar-head .label { color: var(--success); }
-.sbar.correct .sbar-head .label::after { content: ' ¹3'; }
+.sbar.correct .sbar-head .label::after { content: ' \2713'; }
 
 /* ---- Donut chart ---- */
 .donut-wrap { display: flex; align-items: center; justify-content: center; gap: 24px; flex-wrap: wrap; }

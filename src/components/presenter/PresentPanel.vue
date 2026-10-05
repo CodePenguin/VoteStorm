@@ -18,11 +18,7 @@ const total = computed(() => q.value?.tally.totalVotes || 0);
       <template v-if="q">
         <h2 class="present-prompt">{{ q.prompt }}</h2>
         <p class="muted" style="margin: 6px 0 16px"><strong class="present-count">{{ total }}</strong> {{ responsesLabel(total) }}</p>
-        <div class="q-results" style="margin-bottom: 16px">
-          <p v-if="q.results_hidden" class="muted" style="font-size: .85rem; margin-bottom: 8px">Results are hidden from the audience. You can still see them here.</p>
-          <QuestionResults :question="toPrivateQuestion(q)" :tally="q.tally" />
-        </div>
-        <div class="toolbar">
+        <div class="toolbar" style="margin-bottom: 16px">
           <button class="btn" @click="store.setQuestionFlag({ questionId: q.id, resultsHidden: !q.results_hidden })">
             {{ q.results_hidden ? 'Show results' : 'Hide results' }}
           </button>
@@ -30,6 +26,10 @@ const total = computed(() => q.value?.tally.totalVotes || 0);
             {{ q.answer_shown ? 'Hide answer' : 'Reveal answer' }}
           </button>
           <button class="btn" @click="store.setConnect(!store.showConnect.value)">{{ store.showConnect.value ? 'Hide join screen' : 'Show join screen' }}</button>
+        </div>
+        <div class="q-results">
+          <p v-if="q.results_hidden" class="muted" style="font-size: .85rem; margin-bottom: 8px">Results are hidden from the audience. You can still see them here.</p>
+          <QuestionResults :question="toPrivateQuestion(q)" :tally="q.tally" hide-total />
         </div>
       </template>
       <template v-else>

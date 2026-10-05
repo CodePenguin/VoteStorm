@@ -72,4 +72,13 @@ describe('get-room-state function', () => {
     const res = await handler({ httpMethod: 'GET', queryStringParameters: { roomCode: 'ANY000' } });
     expect(res.statusCode).toBe(404);
   });
+
+  it('reports nothing live, instead of crashing, when the current question has been removed', async () => {
+    const db = createDb();
+    await db.execute({ sql: 'DELETE FROM votes', args: [] });
+    await db.execute({ sql: 'DELETE FROM questions', args: [] });
+    const res = await handler({ httpMethod: 'GET', queryStringParameters: { roomCode } });
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toMatchObject({ status: 'active', currentQuestion: null, tally: null });
+  });
 });

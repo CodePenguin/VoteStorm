@@ -20,6 +20,7 @@ const tally = ref<Tally>(normalizeTally(null));
 const roomClosed = ref(false);
 const slides = ref<ClosedQuestion[] | null>(null);
 const loadError = ref<string | null>(null);
+const loading = ref(true);
 const hasVoted = ref(false);
 const myVote = ref<number | number[] | null>(null);
 const picks = ref<number[]>([]);
@@ -122,7 +123,10 @@ async function vote(value: number | number[]) {
 }
 
 onMounted(async () => {
-  if (!roomCode.value) return;
+  if (!roomCode.value) {
+    loading.value = false;
+    return;
+  }
   try {
     const state = await api<RoomState>(`get-room-state?roomCode=${encodeURIComponent(roomCode.value)}`);
     roomClosed.value = state.status === 'closed';
@@ -130,9 +134,11 @@ onMounted(async () => {
     tally.value = normalizeTally(state.tally);
     if (roomClosed.value) await loadClosedResults();
   } catch (err) {
+    loading.value = false;
     loadError.value = err instanceof ApiError && err.status === 404 ? "We couldn't find that room." : (err as Error)?.message || 'Something went wrong';
     return;
   }
+  loading.value = false;
   ably = subscribeRoom(
     roomCode.value,
     {
@@ -174,6 +180,11 @@ onBeforeUnmount(() => ably?.close());
 
       <div v-else-if="loadError" class="alert error">{{ loadError }}</div>
 
+      <div v-else-if="loading" class="card state loading-state" role="status">
+        <span class="spinner" aria-hidden="true"></span>
+        <p>Loading&hellip;</p>
+      </div>
+
       <ResultsCarousel v-else-if="roomClosed && slides" :slides="slides" />
 
       <div v-else-if="!roomClosed && !currentQuestion" class="card state">
@@ -190,7 +201,7 @@ onBeforeUnmount(() => ably?.close());
           <button class="btn" style="margin-top: 16px" @click="changeVote">Change my vote</button>
         </div>
         <div class="card slide-card" style="margin-top: 16px; min-height: 0">
-          <div class="slide-eyebrow">Live results</div>
+          <div class="slide-eyebrow">{{ currentQuestion.resultsHidden ? 'Responses' : 'Live results' }}</div>
           <h2 class="slide-title">{{ currentQuestion.prompt }}</h2>
           <QuestionResults :question="currentQuestion" :tally="tally" />
         </div>
@@ -225,13 +236,15 @@ onBeforeUnmount(() => ably?.close());
         </div>
       </div>
     </main>
-
+
+
   </div>
 </template>
 
 <style>
 .vote-page { display: flex; flex-direction: column; }
-.vote-main { flex: 1; padding-top: 28px; padding-bottom: 24px; }
+.vote-main { flex: 1; padding-top: 28px; padding-bottom: 24px; }
+
 .vote-page .prompt { font-size: clamp(1.4rem, 5.5vw, 1.8rem); margin-bottom: 20px; }
 .vote-page .hint { color: var(--text-muted); font-size: .9rem; margin-bottom: 16px; }
 .choices { display: grid; gap: 12px; }
@@ -257,6 +270,8 @@ onBeforeUnmount(() => ably?.close());
 .rate:active { transform: scale(.96); }
 .correct-note { color: var(--success); background: var(--success-soft); border-radius: var(--radius-sm); padding: 8px 12px; display: inline-block; }
 .state { text-align: center; padding: 40px 20px; }
+.loading-state { display: flex; flex-direction: column; align-items: center; gap: 12px; }
+.loading-state .spinner { width: 28px; height: 28px; }
 .state .icon { width: 56px; height: 56px; border-radius: 50%; display: grid; place-items: center; margin: 0 auto 16px; background: var(--accent-soft); color: var(--accent); }
 .state .icon svg { width: 28px; height: 28px; }
 .state .icon.ok { background: var(--success-soft); color: var(--success); }

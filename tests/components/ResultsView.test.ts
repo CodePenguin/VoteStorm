@@ -179,4 +179,20 @@ describe('ResultsView', () => {
     await flushPromises();
     expect((wrapper.find('.connect-screen').element as HTMLElement).style.display).toBe('none');
   });
+
+  it('shows that it is loading until the room has loaded, and stops if the key is unknown', async () => {
+    let release: (v: unknown) => void = () => {};
+    apiMock.mockImplementation((path: string) => (path.startsWith('resolve-results-key') ? new Promise((r) => (release = r)) : Promise.resolve({})));
+    const router = createRouter({ history: createMemoryHistory(), routes });
+    router.push('/results/KEY');
+    await router.isReady();
+    const wrapper = mount(ResultsView, { global: { plugins: [router] } });
+    await flushPromises();
+    expect(wrapper.find('.results-loading').text()).toContain('Loading');
+    const { ApiError } = await import('@/api');
+    release(Promise.reject(new ApiError('Results not found', 404)));
+    await flushPromises();
+    expect(wrapper.find('.results-loading').exists()).toBe(false);
+    expect(wrapper.find('.alert').text()).toBe('Results not found.');
+  });
 });

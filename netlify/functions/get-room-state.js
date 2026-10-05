@@ -28,6 +28,10 @@ export async function handler(event) {
     args: [room.current_question_id],
   });
   const question = questionResult.rows[0];
+  if (!question) {
+    // The room points at a question that no longer exists: treat it as nothing being live.
+    return json(200, { status: room.status, currentQuestion: null, tally: null, showConnect: connectVisible(room) });
+  }
 
   const votesResult = await db.execute({
     sql: 'SELECT * FROM votes WHERE question_id = ?',

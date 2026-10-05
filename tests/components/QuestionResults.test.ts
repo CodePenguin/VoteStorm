@@ -49,4 +49,24 @@ describe('QuestionResults', () => {
     expect(wrapper.text()).toContain('responses received');
     expect(wrapper.find('.sbar').exists()).toBe(false);
   });
+
+  it('marks rating scales so they render as compact single-line rows', () => {
+    const q: Question = { ...base, type: 'rating', options: null, scaleMin: 1, scaleMax: 10 };
+    const wrapper = mount(QuestionResults, { props: { question: q, tally: { counts: {}, totalVotes: 0, average: null } } });
+    expect(wrapper.find('.results-view').classes()).toContain('rating');
+    expect(wrapper.findAll('.sbar')).toHaveLength(10);
+    expect(mount(QuestionResults, { props: { question: base, tally: { counts: [0, 0, 0], totalVotes: 0 } } }).find('.results-view').classes()).not.toContain('rating');
+  });
+
+  it('does not repeat the total under a donut, which already shows it in the middle', () => {
+    const wrapper = mount(QuestionResults, { props: { question: { ...base, display: 'donut' }, tally: { counts: [2, 1, 0], totalVotes: 3 } } });
+    expect(wrapper.find('.donut-center strong').text()).toBe('3');
+    expect(wrapper.find('.slide-total').exists()).toBe(false);
+  });
+
+  it('can leave the total out when the page shows it elsewhere', () => {
+    const wrapper = mount(QuestionResults, { props: { question: base, tally: { counts: [2, 1, 0], totalVotes: 3 }, hideTotal: true } });
+    expect(wrapper.find('.slide-total').exists()).toBe(false);
+    expect(wrapper.findAll('.sbar')).toHaveLength(3);
+  });
 });

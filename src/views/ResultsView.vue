@@ -28,6 +28,7 @@ const showConnect = ref(false);
 const connected = ref(false);
 const connectedCount = ref(0);
 const loadError = ref<string | null>(null);
+const loading = ref(true);
 const lockedReady = ref(false);
 let ably: Ably.Realtime | null = null;
 
@@ -82,12 +83,14 @@ function onState(data: { status: string; currentQuestion: Question | null; initi
 onMounted(async () => {
   if (!resultsKey.value) {
     loadError.value = 'No room specified.';
+    loading.value = false;
     return;
   }
   try {
     const resolved = await api<{ roomCode: string }>(`resolve-results-key?key=${encodeURIComponent(resultsKey.value)}`);
     roomCode.value = resolved.roomCode;
   } catch (err) {
+    loading.value = false;
     loadError.value = err instanceof ApiError && err.status === 404 ? 'Results not found.' : (err as Error)?.message || 'Something went wrong';
     return;
   }
@@ -105,10 +108,12 @@ onMounted(async () => {
       if (roomClosed.value) await loadClosedResults();
     }
   } catch (err) {
+    loading.value = false;
     failWith(err);
     return;
   }
 
+  loading.value = false;
   ably = subscribeRoom(
     roomCode.value,
     {
@@ -140,6 +145,11 @@ onBeforeUnmount(() => ably?.close());
 
     <main class="results-main">
       <div v-if="loadError" class="alert error">{{ loadError }}</div>
+
+      <div v-else-if="loading" class="results-loading" role="status">
+        <span class="spinner" aria-hidden="true"></span>
+        <span>Loading&hellip;</span>
+      </div>
 
       <ResultsCarousel v-else-if="roomCode && roomClosed && slides" :slides="slides" large :show-nav="false" />
 
@@ -181,9 +191,11 @@ onBeforeUnmount(() => ably?.close());
 
 <style>
 .results-page { flex: 1; display: flex; flex-direction: column; min-height: 100vh; min-height: 100dvh; }
-.results-page .topbar { display: flex; align-items: center; justify-content: space-between; padding: 20px 40px; }
-.results-main { flex: 1; display: flex; flex-direction: column; justify-content: center; width: 100%; max-width: 1400px; margin: 0 auto; padding: 0 48px 32px; }
-.results-page .prompt { font-size: clamp(1.8rem, 4.5vw, 4rem); font-weight: 800; margin-bottom: 44px; }
+.results-page .topbar { display: flex; align-items: center; justify-content: space-between; padding: clamp(10px, 2.4vh, 20px) 40px; }
+.results-main { flex: 1; display: flex; flex-direction: column; justify-content: center; width: 100%; max-width: 1400px; margin: 0 auto; padding: 0 48px clamp(8px, 2vh, 32px); }
+.results-page .prompt { font-size: clamp(1.6rem, min(4.5vw, 7vh), 4rem); font-weight: 800; margin-bottom: clamp(14px, 3.6vh, 44px); }
+.results-loading { display: flex; align-items: center; justify-content: center; gap: 14px; color: var(--text-muted); font-size: 1.2rem; }
+.results-loading .spinner { width: 24px; height: 24px; }
 .results-page .not-active { text-align: center; color: var(--text-muted); font-weight: 700; font-size: clamp(1.6rem, 4vw, 3rem); padding: 64px 0; }
 .results-page .waiting { text-align: center; }
 .results-page .waiting h1 { font-size: clamp(1.8rem, 4vw, 2.8rem); margin-bottom: 8px; }

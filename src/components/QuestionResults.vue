@@ -5,10 +5,12 @@ import {
   DONUT_COLORS, countFor, donutSegments, formatAverage, hasCounts, isHiddenTally, isLeader, pctFor, ratingValues, responsesLabel,
 } from '@/lib/tally';
 
-const props = defineProps<{ question: Question; tally: Tally; large?: boolean; projector?: boolean }>();
+const props = defineProps<{ question: Question; tally: Tally; large?: boolean; projector?: boolean; hideTotal?: boolean }>();
 
 const total = computed(() => props.tally.totalVotes || 0);
 const hidden = computed(() => props.question.resultsHidden || isHiddenTally(props.tally));
+// A donut already shows the total in its centre, and some screens show it elsewhere.
+const showTotal = computed(() => !hidden.value && !props.hideTotal && !(props.question.type === 'choice' && props.question.display === 'donut'));
 const visible = computed(() => (hasCounts(props.tally) ? props.tally : { counts: [] as number[], totalVotes: total.value }));
 const options = computed(() => props.question.options ?? []);
 const isCorrect = (i: number) => (props.question.correct ?? []).includes(i);
@@ -17,7 +19,7 @@ const average = computed(() => ('average' in visible.value ? visible.value.avera
 </script>
 
 <template>
-  <div class="results-view" :class="{ large: large || projector, projector }">
+  <div class="results-view" :class="{ large: large || projector, projector, rating: question.type === 'rating' }">
     <div v-if="hidden" class="hidden-results">
       <div class="big-count">{{ total }}</div>
       <p>{{ total === 1 ? 'response received' : 'responses received' }}</p>
@@ -69,7 +71,7 @@ const average = computed(() => ('average' in visible.value ? visible.value.avera
       </div>
     </template>
 
-    <p v-if="!hidden" class="slide-total">{{ total }} {{ responsesLabel(total) }}</p>
+    <p v-if="showTotal" class="slide-total">{{ total }} {{ responsesLabel(total) }}</p>
   </div>
 </template>
 
@@ -85,17 +87,26 @@ const average = computed(() => ('average' in visible.value ? visible.value.avera
 .results-view.large .slide-average strong { font-size: clamp(2.5rem, 5vw, 4rem); }
 .results-view.large .slide-average span { font-size: 1.2rem; color: var(--text-muted); }
 .results-view.large .slide-total { font-size: 1.05rem; }
-.results-view.large .donut { width: clamp(220px, 32vh, 380px); }
+.results-view.large .donut { width: clamp(220px, 40vh, 380px); }
 .results-view.large .donut-center strong { font-size: clamp(2.5rem, 5vw, 4.5rem); }
-.results-view.large .donut-legend { font-size: clamp(1.1rem, 1.8vw, 1.7rem); gap: 14px; }
+.results-view.large .donut-legend { font-size: clamp(1.1rem, 1.8vw, 1.7rem); gap: 14px; max-width: 560px; }
+/* Rating scales can have many values: one compact line each, so ten of them stay short on a phone. */
+.results-view.rating:not(.projector) .sbar { display: grid; grid-template-columns: 2.4ch 1fr 3.6ch; align-items: center; gap: 10px; margin: 7px 0; }
+.results-view.rating:not(.projector) .sbar-head { display: contents; margin: 0; }
+.results-view.rating:not(.projector) .sbar-head .label { order: 1; }
+.results-view.rating:not(.projector) .sbar-track { order: 2; height: 10px; }
+.results-view.rating:not(.projector) .sbar-head .count { order: 3; text-align: right; }
+.results-view.rating.large:not(.projector) .sbar-track { height: clamp(12px, 1.6vw, 22px); }
+
 /* Projector: label | bar | count rows, as on the big results screen. */
-.results-view.projector .sbar { display: grid; grid-template-columns: minmax(120px, 340px) 1fr 190px; align-items: center; gap: 24px; margin: 0 0 18px; font-size: clamp(1.1rem, 2.2vw, 2rem); }
+.results-view.projector .sbar { display: grid; grid-template-columns: minmax(120px, 340px) 1fr 190px; align-items: center; gap: 24px; margin: 0 0 clamp(5px, 1.2vh, 18px); font-size: clamp(1rem, min(2.2vw, 3vh), 2rem); }
 .results-view.projector .sbar-head { display: contents; font-size: inherit; margin: 0; }
 .results-view.projector .sbar-head .label { order: 1; text-align: right; font-weight: 600; overflow-wrap: anywhere; }
-.results-view.projector .sbar-track { order: 2; height: clamp(32px, 3.4vw, 56px); border-radius: 0; background: var(--surface); border: 1px solid var(--border); }
+.results-view.projector .sbar-track { order: 2; height: clamp(16px, min(3.4vw, 3.4vh), 56px); border-radius: 0; background: var(--surface); border: 1px solid var(--border); }
 .results-view.projector .sbar-fill { border-radius: 0; }
 .results-view.projector .sbar-head .count { order: 3; font-weight: 700; }
-.results-view.projector .slide-average { margin-top: 36px; gap: 14px; }
+.results-view.projector .slide-average { margin-top: clamp(8px, 2.4vh, 36px); gap: 14px; }
+.results-view.projector .slide-average strong { font-size: clamp(2rem, min(5vw, 7vh), 4rem); }
 .results-view.projector .slide-total { display: none; }
 @media (max-width: 720px) {
   .results-view.projector .sbar { grid-template-columns: 1fr 90px; gap: 6px 12px; }

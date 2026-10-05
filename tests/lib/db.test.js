@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -145,5 +145,38 @@ describe('db', () => {
     await touchRoomActivity(db, 'ROOM01');
     const room = await getRoomByCode(db, 'ROOM01');
     expect(Number(room.last_activity_at)).toBeGreaterThan(Date.now() - 60000);
+  });
+
+  it('sets the schema up once per database, not on every request', async () => {
+    const url = tempDbUrl();
+    const first = createDb(url);
+    await initSchema(first);
+
+    const second = createDb(url);
+    const execute = vi.spyOn(second, 'execute');
+    await initSchema(second);
+    await initSchema(createDb(url));
+    expect(execute).not.toHaveBeenCalled();
+    // and the tables really are there for later requests
+    await second.execute({ sql: `INSERT INTO rooms (admin_key_hash, room_code, status, created_at) VALUES (?, ?, 'lobby', ?)`, args: ['h', 'CACHE1', Date.now()] });
+    expect((await getRoomByCode(second, 'CACHE1')).room_code).toBe('CACHE1');
+  });
+
+  it('does not run the schema twice when requests arrive at the same time', async () => {
+    const url = tempDbUrl();
+    const a = createDb(url);
+    const b = createDb(url);
+    const runA = vi.spyOn(a, 'execute');
+    const runB = vi.spyOn(b, 'execute');
+    await Promise.all([initSchema(a), initSchema(b)]);
+    expect(runA.mock.calls.length > 0 && runB.mock.calls.length > 0).toBe(false);
+  });
+
+  it('keeps separate databases separate', async () => {
+    const one = createDb(tempDbUrl());
+    const two = createDb(tempDbUrl());
+    await initSchema(one);
+    await initSchema(two);
+    await expect(two.execute('SELECT COUNT(*) FROM rooms')).resolves.toBeTruthy();
   });
 });

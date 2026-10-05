@@ -41,6 +41,7 @@ async function copy(kind: string) {
 .share-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 .share-card { display: flex; flex-direction: column; align-items: center; gap: 14px; text-align: center; }
 .share-card .card-title { margin-bottom: 0; align-self: flex-start; }
+.share-card .btn { margin-top: auto; }
 .share-card .qr-box { width: min(220px, 100%); padding: 12px; border-radius: var(--radius-sm); }
 .share-url { max-width: 100%; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .85rem; overflow-wrap: anywhere; }
 @media (max-width: 560px) { .share-grid { grid-template-columns: 1fr; } }

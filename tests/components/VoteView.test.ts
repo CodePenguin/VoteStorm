@@ -156,4 +156,20 @@ describe('VoteView', () => {
     expect(wrapper.text()).not.toContain('closed');
     expect(wrapper.find('.choice').exists()).toBe(false);
   });
+
+  it('shows that it is loading, instead of an empty page, until the room has loaded', async () => {
+    let release: (v: RoomState) => void = () => {};
+    apiMock.mockImplementation((path: string) => (path.startsWith('get-room-state') ? new Promise<RoomState>((r) => (release = r)) : Promise.resolve({})));
+    const router = createRouter({ history: createMemoryHistory(), routes });
+    router.push('/vote/ROOM01');
+    await router.isReady();
+    const wrapper = mount(VoteView, { global: { plugins: [router] } });
+    await flushPromises();
+    expect(wrapper.find('.loading-state').text()).toContain('Loading');
+    expect(wrapper.text()).not.toContain('Waiting for the next question');
+    release(state());
+    await flushPromises();
+    expect(wrapper.find('.loading-state').exists()).toBe(false);
+    expect(wrapper.text()).toContain('Favourite fruit?');
+  });
 });
