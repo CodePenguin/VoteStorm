@@ -1,8 +1,9 @@
-import { createDb, initSchema, getRoomByCode, touchRoomActivity } from '../../lib/db.js';
-import { roomLicense } from '../../lib/license.js';
+import { createDb, initSchema, getStormByCode, touchStormActivity } from '../../lib/db.js';
+import { stormLicense } from '../../lib/license.js';
 import { computeTally } from '../../lib/tally.js';
 import { publishEvent } from '../../lib/realtime.js';
 import { publicTally } from '../../lib/question.js';
+import { rateLimit, rateLimitByIp } from '../../lib/rateLimit.js';
 import { json } from '../../lib/http.js';
 
 export async function handler(event) {
@@ -16,17 +17,23 @@ export async function handler(event) {
   } catch {
     return json(400, { error: 'Invalid JSON' });
   }
-  const { roomCode, questionId, deviceId, value } = body;
-  if (!roomCode || !questionId || !deviceId || value === undefined) {
-    return json(400, { error: 'roomCode, questionId, deviceId, value are required' });
+  const { stormCode, questionId, deviceId, value } = body;
+  if (!stormCode || !questionId || !deviceId || value === undefined) {
+    return json(400, { error: 'stormCode, questionId, deviceId, value are required' });
+  }
+
+  if (typeof deviceId !== 'string' || !/^[\w-]{1,100}$/.test(deviceId)) {
+    return json(400, { error: 'Invalid deviceId' });
   }
 
   const db = createDb();
   await initSchema(db);
+  const limited = (await rateLimitByIp(db, event, 'voteByIp')) || (await rateLimit(db, 'voteByDevice', deviceId));
+  if (limited) return limited;
 
-  const room = await getRoomByCode(db, roomCode);
-  if (!room) return json(404, { error: 'Room not found' });
-  if (room.status !== 'active' || Number(room.current_question_id) !== Number(questionId)) {
+  const storm = await getStormByCode(db, stormCode);
+  if (!storm) return json(404, { error: 'Storm not found' });
+  if (storm.status !== 'active' || Number(storm.current_question_id) !== Number(questionId)) {
     return json(409, { error: 'This question is not currently active', code: 'not_active' });
   }
 
@@ -57,16 +64,16 @@ export async function handler(event) {
     }
   }
 
-  const { maxAudiencePerRoom } = roomLicense(room);
-  if (maxAudiencePerRoom) {
+  const { maxAudiencePerStorm } = stormLicense(storm);
+  if (maxAudiencePerStorm) {
     const audience = await db.execute({
       sql: `SELECT COUNT(DISTINCT v.device_id) AS n, MAX(v.device_id = ?) AS mine
-            FROM votes v JOIN questions q ON q.id = v.question_id WHERE q.room_code = ?`,
-      args: [deviceId, room.room_code],
+            FROM votes v JOIN questions q ON q.id = v.question_id WHERE q.storm_code = ?`,
+      args: [deviceId, storm.storm_code],
     });
     const { n, mine } = audience.rows[0];
-    if (!Number(mine) && Number(n) >= maxAudiencePerRoom) {
-      return json(403, { error: 'This room has reached its audience limit.', code: 'audience_full' });
+    if (!Number(mine) && Number(n) >= maxAudiencePerStorm) {
+      return json(403, { error: 'This Storm has reached its audience limit.', code: 'audience_full' });
     }
   }
 
@@ -77,7 +84,7 @@ export async function handler(event) {
     args: [questionId, deviceId, storedValue, Date.now()],
   });
 
-  await touchRoomActivity(db, room.room_code);
+  await touchStormActivity(db, storm.storm_code);
   const votesResult = await db.execute({
     sql: 'SELECT * FROM votes WHERE question_id = ?',
     args: [questionId],
@@ -85,7 +92,7 @@ export async function handler(event) {
   const tally = computeTally(question, votesResult.rows);
 
   const shown = publicTally(question, tally);
-  await publishEvent(roomCode, 'tally', { questionId, ...shown });
+  await publishEvent(stormCode, 'tally', { questionId, ...shown });
 
   return json(200, { ok: true, tally: shown });
 }

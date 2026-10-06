@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { flushPromises, mount } from '@vue/test-utils';
 import { createMemoryHistory, createRouter } from 'vue-router';
 import { routes } from '@/router';
-import type { Question, RoomState } from '@/shared/types';
+import type { Question, StormState } from '@/shared/types';
 
 const apiMock = vi.fn();
 vi.mock('@/api', () => ({
@@ -19,8 +19,8 @@ vi.mock('@/api', () => ({
 }));
 
 const channel = { handlers: {} as Record<string, (d: any) => void>, close: vi.fn() };
-vi.mock('@/composables/useRoomChannel', () => ({
-  subscribeRoom: (_code: string, handlers: Record<string, (d: any) => void>) => {
+vi.mock('@/composables/useStormChannel', () => ({
+  subscribeStorm: (_code: string, handlers: Record<string, (d: any) => void>) => {
     channel.handlers = handlers;
     return { close: channel.close };
   },
@@ -33,18 +33,18 @@ const choice: Question = {
   multi: false, display: 'bars', resultsHidden: false, correct: null,
 };
 
-function state(overrides: Partial<RoomState> = {}): RoomState {
+function state(overrides: Partial<StormState> = {}): StormState {
   return { status: 'active', currentQuestion: choice, tally: { counts: [0, 0, 0], totalVotes: 0 }, showConnect: false, ...overrides };
 }
 
-async function mountVote(roomState: RoomState) {
+async function mountVote(stormState: StormState) {
   apiMock.mockImplementation(async (path: string) => {
-    if (path.startsWith('get-room-state')) return roomState;
+    if (path.startsWith('get-storm-state')) return stormState;
     if (path.startsWith('vote')) return { ok: true };
     throw new Error('unexpected ' + path);
   });
   const router = createRouter({ history: createMemoryHistory(), routes });
-  router.push('/vote/ROOM01');
+  router.push('/vote/STORM01');
   await router.isReady();
   const wrapper = mount(VoteView, { global: { plugins: [router] } });
   await flushPromises();
@@ -68,7 +68,7 @@ describe('VoteView', () => {
     await wrapper.findAll('.choice')[1].trigger('click');
     await flushPromises();
     const call = apiMock.mock.calls.find((c) => c[0] === 'vote')!;
-    expect(JSON.parse(call[1].body)).toEqual({ roomCode: 'ROOM01', questionId: 7, deviceId: 'device-1', value: 1 });
+    expect(JSON.parse(call[1].body)).toEqual({ stormCode: 'STORM01', questionId: 7, deviceId: 'device-1', value: 1 });
     expect(wrapper.text()).toContain('Thanks, your vote is in');
     expect(wrapper.text()).toContain('Change my vote');
     expect(localStorage.getItem('votestorm_voted_7')).toBe('1');
@@ -125,29 +125,29 @@ describe('VoteView', () => {
     expect(wrapper.find('.choice').exists()).toBe(true);
   });
 
-  it('shows a friendly message for an unknown room', async () => {
+  it('shows a friendly message for an unknown storm', async () => {
     apiMock.mockImplementation(async () => {
       const { ApiError } = await import('@/api');
-      throw new ApiError('Room not found', 404);
+      throw new ApiError('Storm not found', 404);
     });
     const router = createRouter({ history: createMemoryHistory(), routes });
     router.push('/vote/NOPE00');
     await router.isReady();
     const wrapper = mount(VoteView, { global: { plugins: [router] } });
     await flushPromises();
-    expect(wrapper.text()).toContain("We couldn't find that room.");
+    expect(wrapper.text()).toContain("We couldn't find that Storm.");
   });
 
-  it('shows the swipeable results (and no vote buttons) for a closed room', async () => {
+  it('shows the swipeable results (and no vote buttons) for a closed storm', async () => {
     apiMock.mockImplementation(async (path: string) => {
-      if (path.startsWith('get-room-state')) return state({ status: 'closed', currentQuestion: null, tally: null });
-      if (path.startsWith('get-room-results')) {
+      if (path.startsWith('get-storm-state')) return state({ status: 'closed', currentQuestion: null, tally: null });
+      if (path.startsWith('get-storm-results')) {
         return { questions: [{ ...choice, correct: [0], tally: { counts: [2, 1, 0], totalVotes: 3 } }] };
       }
       throw new Error('unexpected ' + path);
     });
     const router = createRouter({ history: createMemoryHistory(), routes });
-    router.push('/vote/ROOM01');
+    router.push('/vote/STORM01');
     await router.isReady();
     const wrapper = mount(VoteView, { global: { plugins: [router] } });
     await flushPromises();
@@ -157,11 +157,11 @@ describe('VoteView', () => {
     expect(wrapper.find('.choice').exists()).toBe(false);
   });
 
-  it('shows that it is loading, instead of an empty page, until the room has loaded', async () => {
-    let release: (v: RoomState) => void = () => {};
-    apiMock.mockImplementation((path: string) => (path.startsWith('get-room-state') ? new Promise<RoomState>((r) => (release = r)) : Promise.resolve({})));
+  it('shows that it is loading, instead of an empty page, until the storm has loaded', async () => {
+    let release: (v: StormState) => void = () => {};
+    apiMock.mockImplementation((path: string) => (path.startsWith('get-storm-state') ? new Promise<StormState>((r) => (release = r)) : Promise.resolve({})));
     const router = createRouter({ history: createMemoryHistory(), routes });
-    router.push('/vote/ROOM01');
+    router.push('/vote/STORM01');
     await router.isReady();
     const wrapper = mount(VoteView, { global: { plugins: [router] } });
     await flushPromises();

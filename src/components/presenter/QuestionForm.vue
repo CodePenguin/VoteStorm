@@ -33,7 +33,7 @@ function submit() {
       </label>
       <label class="field">
         <span>Prompt</span>
-        <input v-model="form.prompt" class="input" type="text" placeholder="What would you like to ask?" />
+        <input v-model="form.prompt" class="input" type="text" maxlength="300" placeholder="What would you like to ask?" />
       </label>
 
       <div v-if="form.type === 'choice'" class="form-grid full">

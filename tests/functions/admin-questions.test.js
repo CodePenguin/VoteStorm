@@ -8,8 +8,8 @@ vi.mock('../../lib/realtime.js', () => ({
   createTokenRequest: vi.fn(),
 }));
 
-import { createDb, initSchema, getRoomByCode } from '../../lib/db.js';
-import { generateAdminKey, hashAdminKey, deriveRoomCode } from '../../lib/roomCode.js';
+import { createDb, initSchema, getStormByCode } from '../../lib/db.js';
+import { generateAdminKey, hashAdminKey, deriveStormCode } from '../../lib/stormCode.js';
 import { handler } from '../../netlify/functions/admin-questions.js';
 import { publishEvent } from '../../lib/realtime.js';
 
@@ -22,10 +22,10 @@ describe('admin-questions function', () => {
     const db = createDb();
     await initSchema(db);
     adminKey = generateAdminKey();
-    const roomCode = deriveRoomCode(adminKey);
+    const stormCode = deriveStormCode(adminKey);
     await db.execute({
-      sql: `INSERT INTO rooms (admin_key_hash, room_code, status, created_at) VALUES (?, ?, 'lobby', ?)`,
-      args: [hashAdminKey(adminKey), roomCode, Date.now()],
+      sql: `INSERT INTO storms (admin_key_hash, storm_code, status, created_at) VALUES (?, ?, 'lobby', ?)`,
+      args: [hashAdminKey(adminKey), stormCode, Date.now()],
     });
     vi.clearAllMocks();
   });
@@ -117,18 +117,18 @@ describe('admin-questions function', () => {
 
     const db = createDb();
     await db.execute({
-      sql: 'UPDATE rooms SET current_question_id = ?, status = ? WHERE admin_key_hash = ?',
+      sql: 'UPDATE storms SET current_question_id = ?, status = ? WHERE admin_key_hash = ?',
       args: [id, 'active', hashAdminKey(adminKey)],
     });
 
     const deleteRes = await handler({ httpMethod: 'DELETE', body: JSON.stringify({ adminKey, questionId: id }) });
     expect(deleteRes.statusCode).toBe(200);
 
-    const roomResult = await db.execute({
-      sql: 'SELECT current_question_id FROM rooms WHERE admin_key_hash = ?',
+    const stormResult = await db.execute({
+      sql: 'SELECT current_question_id FROM storms WHERE admin_key_hash = ?',
       args: [hashAdminKey(adminKey)],
     });
-    expect(roomResult.rows[0].current_question_id).toBeNull();
+    expect(stormResult.rows[0].current_question_id).toBeNull();
 
     expect(publishEvent).toHaveBeenCalledWith(
       expect.any(String),
@@ -161,19 +161,19 @@ describe('admin-questions function', () => {
     expect(res.statusCode).toBe(401);
   });
 
-  it('prevents an admin from mutating another room\'s question (cross-room IDOR)', async () => {
+  it('prevents an admin from mutating another storm\'s question (cross-storm IDOR)', async () => {
     const createResA = await handler({
       httpMethod: 'POST',
-      body: JSON.stringify({ adminKey, type: 'choice', prompt: 'Room A question', options: ['A', 'B'] }),
+      body: JSON.stringify({ adminKey, type: 'choice', prompt: 'Storm A question', options: ['A', 'B'] }),
     });
     const { id } = JSON.parse(createResA.body);
 
     const adminKeyB = generateAdminKey();
-    const roomCodeB = deriveRoomCode(adminKeyB);
+    const stormCodeB = deriveStormCode(adminKeyB);
     const db = createDb();
     await db.execute({
-      sql: `INSERT INTO rooms (admin_key_hash, room_code, status, created_at) VALUES (?, ?, 'lobby', ?)`,
-      args: [hashAdminKey(adminKeyB), roomCodeB, Date.now()],
+      sql: `INSERT INTO storms (admin_key_hash, storm_code, status, created_at) VALUES (?, ?, 'lobby', ?)`,
+      args: [hashAdminKey(adminKeyB), stormCodeB, Date.now()],
     });
 
     const patchRes = await handler({
@@ -198,56 +198,56 @@ describe('admin-questions function', () => {
     const listRes = await handler({ httpMethod: 'GET', queryStringParameters: { adminKey } });
     const { questions } = JSON.parse(listRes.body);
     expect(questions).toHaveLength(1);
-    expect(questions[0].prompt).toBe('Room A question');
+    expect(questions[0].prompt).toBe('Storm A question');
   });
 
   it('bumps last_activity_at to now on POST (create question)', async () => {
-    const roomCode = deriveRoomCode(adminKey);
+    const stormCode = deriveStormCode(adminKey);
     const db = createDb();
-    await db.execute({ sql: 'UPDATE rooms SET last_activity_at = ? WHERE room_code = ?', args: [Date.now() - 3600000, roomCode] });
+    await db.execute({ sql: 'UPDATE storms SET last_activity_at = ? WHERE storm_code = ?', args: [Date.now() - 3600000, stormCode] });
 
     await handler({
       httpMethod: 'POST',
       body: JSON.stringify({ adminKey, type: 'choice', prompt: 'Pick one', options: ['A', 'B'] }),
     });
 
-    const room = await getRoomByCode(db, roomCode);
-    expect(Number(room.last_activity_at)).toBeGreaterThan(Date.now() - 60000);
+    const storm = await getStormByCode(db, stormCode);
+    expect(Number(storm.last_activity_at)).toBeGreaterThan(Date.now() - 60000);
   });
 
   it('bumps last_activity_at to now on PATCH (edit question)', async () => {
-    const roomCode = deriveRoomCode(adminKey);
+    const stormCode = deriveStormCode(adminKey);
     const db = createDb();
     const createRes = await handler({
       httpMethod: 'POST',
       body: JSON.stringify({ adminKey, type: 'choice', prompt: 'Pick one', options: ['A', 'B'] }),
     });
     const { id } = JSON.parse(createRes.body);
-    await db.execute({ sql: 'UPDATE rooms SET last_activity_at = ? WHERE room_code = ?', args: [Date.now() - 3600000, roomCode] });
+    await db.execute({ sql: 'UPDATE storms SET last_activity_at = ? WHERE storm_code = ?', args: [Date.now() - 3600000, stormCode] });
 
     await handler({
       httpMethod: 'PATCH',
       body: JSON.stringify({ adminKey, questionId: id, prompt: 'Updated prompt' }),
     });
 
-    const room = await getRoomByCode(db, roomCode);
-    expect(Number(room.last_activity_at)).toBeGreaterThan(Date.now() - 60000);
+    const storm = await getStormByCode(db, stormCode);
+    expect(Number(storm.last_activity_at)).toBeGreaterThan(Date.now() - 60000);
   });
 
   it('bumps last_activity_at to now on DELETE (remove question)', async () => {
-    const roomCode = deriveRoomCode(adminKey);
+    const stormCode = deriveStormCode(adminKey);
     const db = createDb();
     const createRes = await handler({
       httpMethod: 'POST',
       body: JSON.stringify({ adminKey, type: 'choice', prompt: 'Pick one', options: ['A', 'B'] }),
     });
     const { id } = JSON.parse(createRes.body);
-    await db.execute({ sql: 'UPDATE rooms SET last_activity_at = ? WHERE room_code = ?', args: [Date.now() - 3600000, roomCode] });
+    await db.execute({ sql: 'UPDATE storms SET last_activity_at = ? WHERE storm_code = ?', args: [Date.now() - 3600000, stormCode] });
 
     await handler({ httpMethod: 'DELETE', body: JSON.stringify({ adminKey, questionId: id }) });
 
-    const room = await getRoomByCode(db, roomCode);
-    expect(Number(room.last_activity_at)).toBeGreaterThan(Date.now() - 60000);
+    const storm = await getStormByCode(db, stormCode);
+    expect(Number(storm.last_activity_at)).toBeGreaterThan(Date.now() - 60000);
   });
 });
 
@@ -263,7 +263,7 @@ describe('question display type', () => {
 
 describe('question editing', () => {
   let adminKey;
-  let roomCode;
+  let stormCode;
   let qid;
   const call = (body) => handler({ httpMethod: 'PATCH', body: JSON.stringify({ adminKey, questionId: qid, ...body }) });
   const edit = (fields) => call({ edit: { type: 'choice', prompt: 'Pick', options: ['A', 'B'], ...fields } });
@@ -274,10 +274,10 @@ describe('question editing', () => {
     const db = createDb();
     await initSchema(db);
     adminKey = generateAdminKey();
-    roomCode = deriveRoomCode(adminKey);
+    stormCode = deriveStormCode(adminKey);
     await db.execute({
-      sql: `INSERT INTO rooms (admin_key_hash, room_code, status, created_at) VALUES (?, ?, 'lobby', ?)`,
-      args: [hashAdminKey(adminKey), roomCode, Date.now()],
+      sql: `INSERT INTO storms (admin_key_hash, storm_code, status, created_at) VALUES (?, ?, 'lobby', ?)`,
+      args: [hashAdminKey(adminKey), stormCode, Date.now()],
     });
     const created = await handler({ httpMethod: 'POST', body: JSON.stringify({ adminKey, type: 'choice', prompt: 'Pick', options: ['A', 'B'] }) });
     qid = JSON.parse(created.body).id;
@@ -320,9 +320,9 @@ describe('question editing', () => {
 
   it('publishes the new state when the edited question is live', async () => {
     const db = createDb();
-    await db.execute({ sql: `UPDATE rooms SET status = 'active', current_question_id = ? WHERE room_code = ?`, args: [qid, roomCode] });
+    await db.execute({ sql: `UPDATE storms SET status = 'active', current_question_id = ? WHERE storm_code = ?`, args: [qid, stormCode] });
     await edit({ prompt: 'Updated live', display: 'donut' });
-    expect(publishEvent).toHaveBeenCalledWith(roomCode, 'state', expect.objectContaining({
+    expect(publishEvent).toHaveBeenCalledWith(stormCode, 'state', expect.objectContaining({
       currentQuestion: expect.objectContaining({ prompt: 'Updated live', display: 'donut' }),
     }));
   });

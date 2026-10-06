@@ -23,8 +23,8 @@ const channel = {
   opts: {} as { onPresence?: (n: number) => void },
   close: vi.fn(),
 };
-vi.mock('@/composables/useRoomChannel', () => ({
-  subscribeRoom: (_code: string, handlers: Record<string, (d: any) => void>, opts: { onPresence?: (n: number) => void }) => {
+vi.mock('@/composables/useStormChannel', () => ({
+  subscribeStorm: (_code: string, handlers: Record<string, (d: any) => void>, opts: { onPresence?: (n: number) => void }) => {
     channel.handlers = handlers;
     channel.opts = opts;
     return { close: channel.close, connection: { state: 'connected', on: vi.fn() } };
@@ -57,7 +57,7 @@ async function mountResults(url: string, responses: Routes) {
   return wrapper;
 }
 
-const resolved = { 'resolve-results-key': { roomCode: 'ROOM01' } };
+const resolved = { 'resolve-results-key': { stormCode: 'STORM01' } };
 
 describe('ResultsView', () => {
   beforeEach(() => {
@@ -68,13 +68,13 @@ describe('ResultsView', () => {
   it('shows the live question with projector bars and the response count', async () => {
     const wrapper = await mountResults('/results/KEY', {
       ...resolved,
-      'get-room-state': { status: 'active', currentQuestion: q, tally: { counts: [3, 1], totalVotes: 4 }, showConnect: false },
+      'get-storm-state': { status: 'active', currentQuestion: q, tally: { counts: [3, 1], totalVotes: 4 }, showConnect: false },
     });
     expect(wrapper.find('.prompt').text()).toBe('Best pet?');
     expect(wrapper.find('.results-view.projector').exists()).toBe(true);
     expect(wrapper.findAll('.sbar')).toHaveLength(2);
     expect(wrapper.find('.footer').text()).toContain('4 responses');
-    expect(wrapper.find('.footer').text()).toContain('Room ROOM01');
+    expect(wrapper.find('.footer').text()).toContain('Storm code STORM01');
     expect(wrapper.find('button').exists()).toBe(false);
   });
 
@@ -87,12 +87,12 @@ describe('ResultsView', () => {
   it('shows the join screen when the server says so, with the live connected count', async () => {
     const wrapper = await mountResults('/results/KEY', {
       ...resolved,
-      'get-room-state': { status: 'lobby', currentQuestion: null, tally: null, showConnect: true },
+      'get-storm-state': { status: 'lobby', currentQuestion: null, tally: null, showConnect: true },
     });
     const screen = wrapper.find('.connect-screen');
     expect((screen.element as HTMLElement).style.display).not.toBe('none');
     expect(screen.text()).toContain('Scan to vote');
-    expect(screen.text()).toContain('localhost:3000/vote/ROOM01'.replace('localhost:3000', window.location.host));
+    expect(screen.text()).toContain('localhost:3000/vote/STORM01'.replace('localhost:3000', window.location.host));
     expect(screen.text()).toContain('0 people connected');
     channel.opts.onPresence!(1);
     await flushPromises();
@@ -105,7 +105,7 @@ describe('ResultsView', () => {
   it('updates bars live from tally events', async () => {
     const wrapper = await mountResults('/results/KEY', {
       ...resolved,
-      'get-room-state': { status: 'active', currentQuestion: q, tally: { counts: [0, 0], totalVotes: 0 }, showConnect: false },
+      'get-storm-state': { status: 'active', currentQuestion: q, tally: { counts: [0, 0], totalVotes: 0 }, showConnect: false },
     });
     channel.handlers.tally({ questionId: 5, counts: [0, 6], totalVotes: 6 });
     await flushPromises();
@@ -118,18 +118,18 @@ describe('ResultsView', () => {
   it('shows only a big response counter while results are hidden', async () => {
     const wrapper = await mountResults('/results/KEY', {
       ...resolved,
-      'get-room-state': { status: 'active', currentQuestion: { ...q, resultsHidden: true }, tally: { totalVotes: 3, hidden: true }, showConnect: false },
+      'get-storm-state': { status: 'active', currentQuestion: { ...q, resultsHidden: true }, tally: { totalVotes: 3, hidden: true }, showConnect: false },
     });
     expect(wrapper.find('.big-count').text()).toBe('3');
     expect(wrapper.find('.sbar').exists()).toBe(false);
     expect(wrapper.find('.footer-info').text()).not.toContain('response');
   });
 
-  it('shows the swipeable results with no buttons once the room is closed', async () => {
+  it('shows the swipeable results with no buttons once the storm is closed', async () => {
     const wrapper = await mountResults('/results/KEY', {
       ...resolved,
-      'get-room-state': { status: 'closed', currentQuestion: null, tally: null, showConnect: false },
-      'get-room-results': { questions: [{ ...q, tally: { counts: [1, 2], totalVotes: 3 } }] },
+      'get-storm-state': { status: 'closed', currentQuestion: null, tally: null, showConnect: false },
+      'get-storm-results': { questions: [{ ...q, tally: { counts: [1, 2], totalVotes: 3 } }] },
     });
     expect(wrapper.find('.carousel.large').exists()).toBe(true);
     expect(wrapper.text()).toContain('Question 1');
@@ -148,7 +148,7 @@ describe('ResultsView', () => {
     expect(JSON.parse(activate[1].body)).toEqual({ resultsKey: 'KEY', questionId: 5 });
     expect(apiMock.mock.calls.find((c) => String(c[0]).startsWith('get-question-results'))![0]).toContain('questionId=5');
     expect(wrapper.find('.prompt').text()).toBe('Best pet?');
-    expect(apiMock.mock.calls.some((c) => String(c[0]).startsWith('get-room-state'))).toBe(false);
+    expect(apiMock.mock.calls.some((c) => String(c[0]).startsWith('get-storm-state'))).toBe(false);
   });
 
   it('a pinned link shows only a message when its question is not live, and follows it when it goes live', async () => {
@@ -180,7 +180,7 @@ describe('ResultsView', () => {
     expect((wrapper.find('.connect-screen').element as HTMLElement).style.display).toBe('none');
   });
 
-  it('shows that it is loading until the room has loaded, and stops if the key is unknown', async () => {
+  it('shows that it is loading until the storm has loaded, and stops if the key is unknown', async () => {
     let release: (v: unknown) => void = () => {};
     apiMock.mockImplementation((path: string) => (path.startsWith('resolve-results-key') ? new Promise((r) => (release = r)) : Promise.resolve({})));
     const router = createRouter({ history: createMemoryHistory(), routes });

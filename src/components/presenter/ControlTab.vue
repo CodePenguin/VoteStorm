@@ -33,14 +33,14 @@ const emit = defineEmits<{ deleted: [] }>();
     <div class="card">
       <div class="card-title">Control</div>
       <div class="toolbar">
-        <button class="btn" @click="store.resetRoom()">Reset all votes</button>
-        <button v-if="store.room.value?.status !== 'closed'" class="btn" @click="store.closeRoom()">Close room</button>
-        <button v-else class="btn primary" @click="store.reopenRoom()">Reopen room</button>
+        <button class="btn" @click="store.resetStorm()">Reset all votes</button>
+        <button v-if="store.storm.value?.status !== 'closed'" class="btn" @click="store.closeStorm()">End Storm</button>
+        <button v-else class="btn primary" @click="store.reopenStorm()">Reopen Storm</button>
         <span class="spacer"></span>
-        <button class="btn danger" @click="store.deleteRoom().then((ok) => ok && emit('deleted'))">Delete room</button>
+        <button class="btn danger" @click="store.deleteStorm().then((ok) => ok && emit('deleted'))">Delete Storm</button>
       </div>
       <p class="muted" style="font-size: .82rem; margin-top: 12px">
-        Closing stops voting but keeps results; reopening resumes it. Deleting removes the room and all votes permanently.
+        Ending a Storm stops voting but keeps results; reopening resumes it. Deleting removes the Storm and all votes permanently.
       </p>
     </div>
   </div>

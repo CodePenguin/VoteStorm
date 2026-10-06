@@ -21,6 +21,7 @@ export default defineConfig({
   },
   test: {
     environment: 'node',
+    setupFiles: ['tests/setup.js'],
     include: ['tests/**/*.test.{js,ts}'],
     exclude: [...configDefaults.exclude, '.claude/**', 'legacy/**', 'dist/**'],
   },

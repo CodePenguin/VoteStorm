@@ -20,3 +20,11 @@
   from = "/*"
   to = "/index.html"
   status = 200
+
+# Keep secret keys that appear in page addresses from leaking through Referer headers, and tighten browser defaults.
+[[headers]]
+  for = "/*"
+  [headers.values]
+    Referrer-Policy = "same-origin"
+    X-Content-Type-Options = "nosniff"
+    Permissions-Policy = "camera=(), microphone=(), geolocation=()"

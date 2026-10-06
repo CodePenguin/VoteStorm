@@ -1,4 +1,4 @@
-import type { AdminQuestion, Question, QuestionForm, QuestionPayload, RoomStatus } from '@/shared/types';
+import type { AdminQuestion, Question, QuestionForm, QuestionPayload, StormStatus } from '@/shared/types';
 
 export function blankForm(): QuestionForm {
   return { type: 'choice', prompt: '', optionsText: '', correctText: '', display: 'bars', resultsHidden: false, multi: false, scaleMin: 1, scaleMax: 5 };
@@ -63,6 +63,6 @@ export function toPrivateQuestion(q: AdminQuestion): Question {
   };
 }
 
-export function statusLabel(status: RoomStatus): string {
+export function statusLabel(status: StormStatus): string {
   return { lobby: 'Lobby', active: 'Live', closed: 'Closed' }[status] ?? status;
 }

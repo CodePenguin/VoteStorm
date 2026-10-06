@@ -9,13 +9,13 @@ vi.mock('../../lib/realtime.js', () => ({
 }));
 
 import { publishEvent } from '../../lib/realtime.js';
-import { createDb, initSchema, getRoomByCode } from '../../lib/db.js';
-import { generateAdminKey, hashAdminKey, deriveRoomCode } from '../../lib/roomCode.js';
+import { createDb, initSchema, getStormByCode } from '../../lib/db.js';
+import { generateAdminKey, hashAdminKey, deriveStormCode } from '../../lib/stormCode.js';
 import { handler as questionsHandler } from '../../netlify/functions/admin-questions.js';
-import { handler } from '../../netlify/functions/admin-room.js';
+import { handler } from '../../netlify/functions/admin-storm.js';
 
-describe('admin-room function', () => {
-  let adminKey, roomCode, questionId;
+describe('admin-storm function', () => {
+  let adminKey, stormCode, questionId;
 
   beforeEach(async () => {
     const dir = mkdtempSync(path.join(tmpdir(), 'votestorm-test-'));
@@ -23,10 +23,10 @@ describe('admin-room function', () => {
     const db = createDb();
     await initSchema(db);
     adminKey = generateAdminKey();
-    roomCode = deriveRoomCode(adminKey);
+    stormCode = deriveStormCode(adminKey);
     await db.execute({
-      sql: `INSERT INTO rooms (admin_key_hash, room_code, status, created_at) VALUES (?, ?, 'lobby', ?)`,
-      args: [hashAdminKey(adminKey), roomCode, Date.now()],
+      sql: `INSERT INTO storms (admin_key_hash, storm_code, status, created_at) VALUES (?, ?, 'lobby', ?)`,
+      args: [hashAdminKey(adminKey), stormCode, Date.now()],
     });
     const createRes = await questionsHandler({
       httpMethod: 'POST',
@@ -40,10 +40,10 @@ describe('admin-room function', () => {
     delete process.env.TURSO_DATABASE_URL;
   });
 
-  it('returns room detail with questions and tallies', async () => {
+  it('returns storm detail with questions and tallies', async () => {
     const res = await handler({ httpMethod: 'GET', queryStringParameters: { adminKey } });
     const body = JSON.parse(res.body);
-    expect(body.room.room_code).toBe(roomCode);
+    expect(body.storm.storm_code).toBe(stormCode);
     expect(body.questions).toHaveLength(1);
     expect(body.questions[0].tally.totalVotes).toBe(0);
   });
@@ -54,10 +54,10 @@ describe('admin-room function', () => {
       body: JSON.stringify({ adminKey, status: 'active', currentQuestionId: questionId }),
     });
     expect(res.statusCode).toBe(200);
-    expect(publishEvent).toHaveBeenCalledWith(roomCode, 'state', expect.objectContaining({ status: 'active' }));
+    expect(publishEvent).toHaveBeenCalledWith(stormCode, 'state', expect.objectContaining({ status: 'active' }));
 
     const publishedPayload = publishEvent.mock.calls[0][2];
-    // currentQuestion must be shaped like get-room-state.js's output, not the
+    // currentQuestion must be shaped like get-storm-state.js's output, not the
     // raw DB row: options parsed into an array (not a JSON string), and
     // camelCase scale fields (not snake_case scale_min/scale_max).
     expect(Array.isArray(publishedPayload.currentQuestion.options)).toBe(true);
@@ -90,44 +90,44 @@ describe('admin-room function', () => {
 
   it('bumps last_activity_at to now on PATCH (activate)', async () => {
     const db = createDb();
-    await db.execute({ sql: 'UPDATE rooms SET last_activity_at = ? WHERE room_code = ?', args: [Date.now() - 3600000, roomCode] });
+    await db.execute({ sql: 'UPDATE storms SET last_activity_at = ? WHERE storm_code = ?', args: [Date.now() - 3600000, stormCode] });
 
     await handler({
       httpMethod: 'PATCH',
       body: JSON.stringify({ adminKey, status: 'active', currentQuestionId: questionId }),
     });
 
-    const room = await getRoomByCode(db, roomCode);
-    expect(Number(room.last_activity_at)).toBeGreaterThan(Date.now() - 60000);
+    const storm = await getStormByCode(db, stormCode);
+    expect(Number(storm.last_activity_at)).toBeGreaterThan(Date.now() - 60000);
   });
 
   it('bumps last_activity_at to now on PATCH (reset action)', async () => {
     const db = createDb();
-    await db.execute({ sql: 'UPDATE rooms SET last_activity_at = ? WHERE room_code = ?', args: [Date.now() - 3600000, roomCode] });
+    await db.execute({ sql: 'UPDATE storms SET last_activity_at = ? WHERE storm_code = ?', args: [Date.now() - 3600000, stormCode] });
 
     await handler({ httpMethod: 'PATCH', body: JSON.stringify({ adminKey, action: 'reset' }) });
 
-    const room = await getRoomByCode(db, roomCode);
-    expect(Number(room.last_activity_at)).toBeGreaterThan(Date.now() - 60000);
+    const storm = await getStormByCode(db, stormCode);
+    expect(Number(storm.last_activity_at)).toBeGreaterThan(Date.now() - 60000);
   });
 
-  it('deletes the room and its questions', async () => {
+  it('deletes the storm and its questions', async () => {
     await handler({ httpMethod: 'DELETE', body: JSON.stringify({ adminKey }) });
     const res = await handler({ httpMethod: 'GET', queryStringParameters: { adminKey } });
     expect(res.statusCode).toBe(401);
   });
 
-  it('rejects setting currentQuestionId to a question belonging to another room', async () => {
+  it('rejects setting currentQuestionId to a question belonging to another storm', async () => {
     const db = createDb();
     const otherAdminKey = generateAdminKey();
-    const otherRoomCode = deriveRoomCode(otherAdminKey);
+    const otherStormCode = deriveStormCode(otherAdminKey);
     await db.execute({
-      sql: `INSERT INTO rooms (admin_key_hash, room_code, status, created_at) VALUES (?, ?, 'lobby', ?)`,
-      args: [hashAdminKey(otherAdminKey), otherRoomCode, Date.now()],
+      sql: `INSERT INTO storms (admin_key_hash, storm_code, status, created_at) VALUES (?, ?, 'lobby', ?)`,
+      args: [hashAdminKey(otherAdminKey), otherStormCode, Date.now()],
     });
     const otherCreateRes = await questionsHandler({
       httpMethod: 'POST',
-      body: JSON.stringify({ adminKey: otherAdminKey, type: 'choice', prompt: 'Other room question', options: ['X', 'Y'] }),
+      body: JSON.stringify({ adminKey: otherAdminKey, type: 'choice', prompt: 'Other storm question', options: ['X', 'Y'] }),
     });
     const otherQuestionId = JSON.parse(otherCreateRes.body).id;
     vi.clearAllMocks();
@@ -142,7 +142,7 @@ describe('admin-room function', () => {
 
     const getRes = await handler({ httpMethod: 'GET', queryStringParameters: { adminKey } });
     const body = JSON.parse(getRes.body);
-    expect(body.room.current_question_id).toBeNull();
+    expect(body.storm.current_question_id).toBeNull();
   });
 
   it('publishes the real tally (not zeroed) when activating a question that already has votes', async () => {
@@ -172,8 +172,8 @@ describe('admin-room function', () => {
     expect(publishedPayload.initialTally.counts).toEqual([1, 0]);
   });
 
-  it('publishes a state event on a status-only change (closing the room) with no currentQuestionId in the body', async () => {
-    // First activate a question so the room has a current_question_id set.
+  it('publishes a state event on a status-only change (closing the storm) with no currentQuestionId in the body', async () => {
+    // First activate a question so the storm has a current_question_id set.
     await handler({
       httpMethod: 'PATCH',
       body: JSON.stringify({ adminKey, status: 'active', currentQuestionId: questionId }),
@@ -185,11 +185,11 @@ describe('admin-room function', () => {
       body: JSON.stringify({ adminKey, status: 'closed' }),
     });
     expect(res.statusCode).toBe(200);
-    expect(publishEvent).toHaveBeenCalledWith(roomCode, 'state', expect.objectContaining({ status: 'closed' }));
+    expect(publishEvent).toHaveBeenCalledWith(stormCode, 'state', expect.objectContaining({ status: 'closed' }));
 
     const publishedPayload = publishEvent.mock.calls[0][2];
     // currentQuestion/initialTally should still be present, re-derived from
-    // the room's existing current_question_id, even though the PATCH body
+    // the storm's existing current_question_id, even though the PATCH body
     // didn't include currentQuestionId.
     expect(publishedPayload.currentQuestion).not.toBeNull();
     expect(publishedPayload.currentQuestion.id).toBe(questionId);
@@ -209,7 +209,7 @@ describe('admin-room function', () => {
 
     res = await handler({ httpMethod: 'PATCH', body: JSON.stringify({ adminKey, showConnect: true }) });
     expect(res.statusCode).toBe(200);
-    expect(publishEvent).toHaveBeenCalledWith(roomCode, 'state', expect.objectContaining({ showConnect: true, status: 'active' }));
+    expect(publishEvent).toHaveBeenCalledWith(stormCode, 'state', expect.objectContaining({ showConnect: true, status: 'active' }));
     res = await handler({ httpMethod: 'GET', queryStringParameters: { adminKey } });
     expect(JSON.parse(res.body).showConnect).toBe(true);
   });

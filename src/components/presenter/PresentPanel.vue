@@ -46,14 +46,14 @@ const total = computed(() => q.value?.tally.totalVotes || 0);
     </div>
 
     <div v-if="store.questions.value.length" class="card">
-      <div v-for="(item, index) in store.questions.value" :key="item.id" class="present-row" :class="{ live: item.id === store.room.value?.current_question_id }">
+      <div v-for="(item, index) in store.questions.value" :key="item.id" class="present-row" :class="{ live: item.id === store.storm.value?.current_question_id }">
         <span class="q-num">{{ index + 1 }}</span>
         <span class="present-row-prompt">{{ item.prompt }}</span>
         <span class="muted present-row-count">{{ item.tally.totalVotes || 0 }}</span>
         <button class="btn sm" title="Results screen for this question. Opening it makes the question live." @click="store.copyQuestionLink(item)">
           {{ store.copiedQuestion.value === item.id ? 'Copied!' : 'Copy link' }}
         </button>
-        <button v-if="item.id !== store.room.value?.current_question_id" class="btn sm primary" @click="store.activate(item.id)">Go live</button>
+        <button v-if="item.id !== store.storm.value?.current_question_id" class="btn sm primary" @click="store.activate(item.id)">Go live</button>
         <span v-else class="badge active"><span class="dot pulse"></span>Live</span>
       </div>
     </div>

@@ -3,7 +3,7 @@ import { ref } from 'vue';
 import QrCode from '@/components/QrCode.vue';
 import { copyText } from '@/composables/useClipboard';
 
-const props = defineProps<{ roomCode: string; resultsKey: string | null }>();
+const props = defineProps<{ stormCode: string; resultsKey: string | null }>();
 const emit = defineEmits<{ copyFailed: [] }>();
 
 const copied = ref<string | null>(null);
@@ -12,7 +12,7 @@ const kinds = [
   { kind: 'results', title: 'Results', alt: 'results' },
 ] as const;
 
-const urlFor = (kind: string) => `${window.location.origin}/${kind}/${kind === 'results' ? props.resultsKey : props.roomCode}`;
+const urlFor = (kind: string) => `${window.location.origin}/${kind}/${kind === 'results' ? props.resultsKey : props.stormCode}`;
 
 async function copy(kind: string) {
   if (await copyText(urlFor(kind))) {

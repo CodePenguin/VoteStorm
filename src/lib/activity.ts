@@ -28,8 +28,8 @@ export function describeActivity(path: string, method: string, rawBody?: unknown
   switch (name) {
     case 'vote':
       return { working: 'Submitting your vote\u2026', done: 'Vote submitted' };
-    case 'create-room':
-      return { working: 'Creating your room\u2026', done: 'Room created' };
+    case 'create-storm':
+      return { working: 'Creating your Storm\u2026', done: 'Storm created' };
     case 'admin-questions':
       if (verb === 'DELETE') return { working: 'Deleting question\u2026', done: 'Question deleted' };
       if (verb === 'POST') return { working: 'Adding question\u2026', done: 'Question added' };
@@ -37,14 +37,14 @@ export function describeActivity(path: string, method: string, rawBody?: unknown
       if (body.action === 'reset') return { working: 'Resetting votes\u2026', done: 'Votes reset' };
       if (has(body, 'orderIndex')) return { working: 'Saving order\u2026', done: 'Order saved' };
       return { working: 'Saving\u2026', done: 'Saved' };
-    case 'admin-room':
-      if (verb === 'DELETE') return { working: 'Deleting room\u2026', done: 'Room deleted' };
+    case 'admin-storm':
+      if (verb === 'DELETE') return { working: 'Deleting Storm\u2026', done: 'Storm deleted' };
       if (body.action === 'reset') return { working: 'Resetting votes\u2026', done: 'Votes reset' };
       if (has(body, 'showConnect')) return { working: 'Updating join screen\u2026', done: 'Join screen updated' };
       if (has(body, 'resultsHidden') || has(body, 'answerShown')) return { working: 'Updating results\u2026', done: 'Results updated' };
       if (has(body, 'currentQuestionId')) return { working: 'Changing question\u2026', done: 'Question changed' };
-      if (body.status === 'closed') return { working: 'Closing room\u2026', done: 'Room closed' };
-      if (has(body, 'status')) return { working: 'Updating room\u2026', done: 'Room updated' };
+      if (body.status === 'closed') return { working: 'Ending Storm\u2026', done: 'Storm ended' };
+      if (has(body, 'status')) return { working: 'Updating Storm\u2026', done: 'Storm updated' };
       return { working: 'Saving\u2026', done: 'Saved' };
     default:
       return { working: 'Saving\u2026', done: 'Saved' };

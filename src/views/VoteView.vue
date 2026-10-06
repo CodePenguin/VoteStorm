@@ -3,21 +3,21 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import type * as Ably from 'ably';
 import { api, ApiError, getDeviceId } from '@/api';
-import { subscribeRoom } from '@/composables/useRoomChannel';
+import { subscribeStorm } from '@/composables/useStormChannel';
 import { normalizeTally, ratingValues } from '@/lib/tally';
-import type { ClosedQuestion, Question, RoomState, Tally } from '@/shared/types';
+import type { ClosedQuestion, Question, StormState, Tally } from '@/shared/types';
 import BrandMark from '@/components/BrandMark.vue';
 import QuestionResults from '@/components/QuestionResults.vue';
 import ResultsCarousel from '@/components/ResultsCarousel.vue';
 import ShareModal from '@/components/ShareModal.vue';
 
 const route = useRoute();
-const roomCode = computed(() => String(route.params.roomCode ?? ''));
+const stormCode = computed(() => String(route.params.stormCode ?? ''));
 const deviceId = getDeviceId();
 
 const currentQuestion = ref<Question | null>(null);
 const tally = ref<Tally>(normalizeTally(null));
-const roomClosed = ref(false);
+const stormClosed = ref(false);
 const slides = ref<ClosedQuestion[] | null>(null);
 const loadError = ref<string | null>(null);
 const loading = ref(true);
@@ -29,7 +29,7 @@ const voteError = ref<string | null>(null);
 const showShare = ref(false);
 let ably: Ably.Realtime | null = null;
 
-const voteUrl = computed(() => `${window.location.origin}/vote/${encodeURIComponent(roomCode.value)}`);
+const voteUrl = computed(() => `${window.location.origin}/vote/${encodeURIComponent(stormCode.value)}`);
 const options = computed(() => currentQuestion.value?.options ?? []);
 const correctLabel = computed(() => {
   const q = currentQuestion.value;
@@ -58,7 +58,7 @@ function applyState(question: Question | null) {
 }
 
 async function loadClosedResults() {
-  const data = await api<{ questions: ClosedQuestion[] }>(`get-room-results?roomCode=${encodeURIComponent(roomCode.value)}`);
+  const data = await api<{ questions: ClosedQuestion[] }>(`get-storm-results?stormCode=${encodeURIComponent(stormCode.value)}`);
   slides.value = data.questions;
 }
 
@@ -67,10 +67,10 @@ function failWith(err: unknown) {
 }
 
 function onState(data: { status: string; currentQuestion: Question | null; initialTally: Tally | null }) {
-  roomClosed.value = data.status === 'closed';
+  stormClosed.value = data.status === 'closed';
   applyState(data.currentQuestion);
   tally.value = normalizeTally(data.initialTally);
-  if (roomClosed.value) loadClosedResults().catch(failWith);
+  if (stormClosed.value) loadClosedResults().catch(failWith);
 }
 
 function onReset(data: { questionId?: number }) {
@@ -109,7 +109,7 @@ async function vote(value: number | number[]) {
   try {
     await api('vote', {
       method: 'POST',
-      body: JSON.stringify({ roomCode: roomCode.value, questionId: q.id, deviceId, value }),
+      body: JSON.stringify({ stormCode: stormCode.value, questionId: q.id, deviceId, value }),
     });
     localStorage.setItem(votedKey(q.id), '1');
     localStorage.setItem(voteKey(q.id), JSON.stringify(value));
@@ -123,24 +123,24 @@ async function vote(value: number | number[]) {
 }
 
 onMounted(async () => {
-  if (!roomCode.value) {
+  if (!stormCode.value) {
     loading.value = false;
     return;
   }
   try {
-    const state = await api<RoomState>(`get-room-state?roomCode=${encodeURIComponent(roomCode.value)}`);
-    roomClosed.value = state.status === 'closed';
+    const state = await api<StormState>(`get-storm-state?stormCode=${encodeURIComponent(stormCode.value)}`);
+    stormClosed.value = state.status === 'closed';
     applyState(state.currentQuestion);
     tally.value = normalizeTally(state.tally);
-    if (roomClosed.value) await loadClosedResults();
+    if (stormClosed.value) await loadClosedResults();
   } catch (err) {
     loading.value = false;
-    loadError.value = err instanceof ApiError && err.status === 404 ? "We couldn't find that room." : (err as Error)?.message || 'Something went wrong';
+    loadError.value = err instanceof ApiError && err.status === 404 ? "We couldn't find that Storm." : (err as Error)?.message || 'Something went wrong';
     return;
   }
   loading.value = false;
-  ably = subscribeRoom(
-    roomCode.value,
+  ably = subscribeStorm(
+    stormCode.value,
     {
       state: onState,
       tally: (data: Tally & { questionId: number }) => {
@@ -163,7 +163,7 @@ onBeforeUnmount(() => ably?.close());
           <BrandMark />
         </span>
         <span class="spacer"></span>
-        <button v-if="roomCode" class="icon-btn" aria-label="Share this poll with a QR code" title="Share with a QR code" @click="showShare = true">
+        <button v-if="stormCode" class="icon-btn" aria-label="Share this poll with a QR code" title="Share with a QR code" @click="showShare = true">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" /><rect x="3" y="14" width="7" height="7" rx="1" /><path d="M14 14h3v3M21 14v.01M14 21h.01M17 21h4v-4" /></svg>
         </button>
       </div>
@@ -172,9 +172,9 @@ onBeforeUnmount(() => ably?.close());
     <ShareModal v-if="showShare" :url="voteUrl" @close="showShare = false" />
 
     <main class="container narrow vote-main">
-      <div v-if="!roomCode" class="card state">
+      <div v-if="!stormCode" class="card state">
         <div class="icon closed"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9" /><path d="M12 8v5M12 16h.01" /></svg></div>
-        <h2>No room specified</h2>
+        <h2>No Storm specified</h2>
         <p>Check the link you were given and try again.</p>
       </div>
 
@@ -185,9 +185,9 @@ onBeforeUnmount(() => ably?.close());
         <p>Loading&hellip;</p>
       </div>
 
-      <ResultsCarousel v-else-if="roomClosed && slides" :slides="slides" />
+      <ResultsCarousel v-else-if="stormClosed && slides" :slides="slides" />
 
-      <div v-else-if="!roomClosed && !currentQuestion" class="card state">
+      <div v-else-if="!stormClosed && !currentQuestion" class="card state">
         <div class="icon"><svg class="pulse" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg></div>
         <h2>Waiting for the next question</h2>
         <p>This page updates automatically &mdash; no need to refresh.</p>

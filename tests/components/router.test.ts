@@ -9,7 +9,7 @@ describe('router', () => {
     expect(resolve('/').name).toBe('landing');
     expect(resolve('/presenter/abc123')).toMatchObject({ name: 'presenter', params: { adminKey: 'abc123' } });
     expect(resolve('/presenter').name).toBe('presenter');
-    expect(resolve('/vote/XYZ234')).toMatchObject({ name: 'vote', params: { roomCode: 'XYZ234' } });
+    expect(resolve('/vote/XYZ234')).toMatchObject({ name: 'vote', params: { stormCode: 'XYZ234' } });
     expect(resolve('/results/deadbeef')).toMatchObject({ name: 'results', params: { resultsKey: 'deadbeef' } });
     expect(resolve('/license').name).toBe('license');
     expect(resolve('/nope/nothing').name).toBe('not-found');

@@ -3,7 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import type * as Ably from 'ably';
 import { api } from '@/api';
-import { subscribeRoom } from '@/composables/useRoomChannel';
+import { subscribeStorm } from '@/composables/useStormChannel';
 import { usePresenter } from '@/composables/usePresenter';
 import { blankForm, formFromQuestion, statusLabel } from '@/lib/presenter';
 import type { AdminQuestion, QuestionForm, QuestionPayload } from '@/shared/types';
@@ -14,8 +14,8 @@ import QuestionCard from '@/components/presenter/QuestionCard.vue';
 import QuestionFormView from '@/components/presenter/QuestionForm.vue';
 import ShareTab from '@/components/presenter/ShareTab.vue';
 
-type Tab = 'questions' | 'room';
-const TABS: Tab[] = ['questions', 'room'];
+type Tab = 'questions' | 'storm';
+const TABS: Tab[] = ['questions', 'storm'];
 
 const route = useRoute();
 const router = useRouter();
@@ -82,9 +82,9 @@ async function save(payload: QuestionPayload) {
   if (await store.saveQuestion(payload, editingId.value)) cancelForm();
 }
 
-async function createRoom() {
+async function createStorm() {
   try {
-    const data = await api<{ adminKey: string }>('create-room', { method: 'POST' });
+    const data = await api<{ adminKey: string }>('create-storm', { method: 'POST' });
     await router.push(`/presenter/${data.adminKey}`);
     await init();
   } catch (e) {
@@ -101,7 +101,7 @@ async function init() {
     return;
   }
   ably?.close();
-  ably = subscribeRoom(store.room.value!.room_code, {
+  ably = subscribeStorm(store.storm.value!.storm_code, {
     tally: (data) => store.onTally(data),
     state: () => store.safeLoad(),
   });
@@ -125,27 +125,27 @@ onBeforeUnmount(() => {
           <BrandMark />
         </RouterLink>
         <span class="spacer"></span>
-        <div v-if="store.room.value" class="seg" role="group" aria-label="Presenter mode">
+        <div v-if="store.storm.value" class="seg" role="group" aria-label="Presenter mode">
           <button :class="{ on: mode === 'edit' }" :aria-pressed="mode === 'edit'" @click="setMode('edit')">Edit</button>
           <button :class="{ on: mode === 'present' }" :aria-pressed="mode === 'present'" @click="setMode('present')">Present</button>
         </div>
-        <button v-if="store.room.value" class="icon-btn" aria-label="Share: audience and results links" title="Share links and QR codes" @click="showShare = true">
+        <button v-if="store.storm.value" class="icon-btn" aria-label="Share: audience and results links" title="Share links and QR codes" @click="showShare = true">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" /><rect x="3" y="14" width="7" height="7" rx="1" /><path d="M14 14h3v3M21 14v.01M14 21h.01M17 21h4v-4" /></svg>
         </button>
-        <span v-if="store.room.value" class="badge" :class="store.room.value.status">
-          <span class="dot" :class="{ pulse: store.room.value.status === 'active' }"></span>
-          <span>{{ statusLabel(store.room.value.status) }}</span>
+        <span v-if="store.storm.value" class="badge" :class="store.storm.value.status">
+          <span class="dot" :class="{ pulse: store.storm.value.status === 'active' }"></span>
+          <span>{{ statusLabel(store.storm.value.status) }}</span>
         </span>
       </div>
     </header>
 
-    <div v-if="showShare && store.room.value" class="modal-backdrop" @click.self="showShare = false">
+    <div v-if="showShare && store.storm.value" class="modal-backdrop" @click.self="showShare = false">
       <div class="card modal wide" role="dialog" aria-modal="true" aria-label="Share">
         <div class="share-head">
           <h2>Share</h2>
           <button class="btn sm" @click="showShare = false">Close</button>
         </div>
-        <ShareTab :room-code="store.room.value.room_code" :results-key="store.resultsKey.value" @copy-failed="store.error.value = 'Could not copy automatically. Press and hold the link to copy it.'" />
+        <ShareTab :storm-code="store.storm.value.storm_code" :results-key="store.resultsKey.value" @copy-failed="store.error.value = 'Could not copy automatically. Press and hold the link to copy it.'" />
       </div>
     </div>
 
@@ -153,12 +153,12 @@ onBeforeUnmount(() => {
       <div v-if="store.error.value" class="alert error" style="margin-bottom: 16px">Couldn't complete that: {{ store.error.value }}</div>
 
       <div v-if="!adminKey" class="card empty">
-        <strong>No room yet</strong>
-        <p style="margin-bottom: 16px">Create a room to start adding questions.</p>
-        <button class="btn primary" @click="createRoom">Create a new room</button>
+        <strong>No Storm yet</strong>
+        <p style="margin-bottom: 16px">Create a Storm to start adding questions.</p>
+        <button class="btn primary" @click="createStorm">Create a new Storm</button>
       </div>
 
-      <div v-else-if="store.room.value">
+      <div v-else-if="store.storm.value">
         <PresentPanel v-show="mode === 'present'" :store="store" />
 
         <div v-show="mode === 'edit'">
@@ -166,7 +166,7 @@ onBeforeUnmount(() => {
             <button class="tab" role="tab" :class="{ on: tab === 'questions' }" :aria-selected="tab === 'questions'" @click="setTab('questions')">
               Questions <span class="muted">({{ store.questions.value.length }})</span>
             </button>
-            <button class="tab" role="tab" :class="{ on: tab === 'room' }" :aria-selected="tab === 'room'" @click="setTab('room')">Control</button>
+            <button class="tab" role="tab" :class="{ on: tab === 'storm' }" :aria-selected="tab === 'storm'" @click="setTab('storm')">Control</button>
           </div>
 
           <div v-show="tab === 'questions'" role="tabpanel">
@@ -185,12 +185,12 @@ onBeforeUnmount(() => {
             <div class="stack">
               <QuestionCard
                 v-for="(q, index) in store.questions.value" :key="q.id" :q="q" :index="index" :count="store.questions.value.length"
-                :is-live="q.id === store.room.value.current_question_id" :store="store" @edit="startEdit"
+                :is-live="q.id === store.storm.value.current_question_id" :store="store" @edit="startEdit"
               />
             </div>
           </div>
 
-          <div v-show="tab === 'room'" role="tabpanel">
+          <div v-show="tab === 'storm'" role="tabpanel">
             <ControlTab :store="store" @deleted="router.push('/presenter')" />
           </div>
         </div>

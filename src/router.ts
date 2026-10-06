@@ -10,7 +10,7 @@ declare module 'vue-router' {
 export const routes = [
   { path: '/', name: 'landing', component: () => import('./views/LandingView.vue') },
   { path: '/presenter/:adminKey?', name: 'presenter', component: () => import('./views/PresenterView.vue') },
-  { path: '/vote/:roomCode', name: 'vote', component: () => import('./views/VoteView.vue') },
+  { path: '/vote/:stormCode', name: 'vote', component: () => import('./views/VoteView.vue') },
   { path: '/results/:resultsKey', name: 'results', component: () => import('./views/ResultsView.vue'), meta: { ownFooter: true } },
   { path: '/license', name: 'license', component: () => import('./views/LicenseView.vue') },
   { path: '/:pathMatch(.*)*', name: 'not-found', component: () => import('./views/NotFoundView.vue') },

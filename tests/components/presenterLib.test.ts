@@ -3,7 +3,7 @@ import { blankForm, buildQuestionPayload, formFromQuestion, statusLabel, toPriva
 import type { AdminQuestion } from '@/shared/types';
 
 const row: AdminQuestion = {
-  id: 3, room_code: 'R', order_index: 0, type: 'choice', prompt: 'Pick', options: JSON.stringify(['Red', 'Green', 'Blue']),
+  id: 3, storm_code: 'R', order_index: 0, type: 'choice', prompt: 'Pick', options: JSON.stringify(['Red', 'Green', 'Blue']),
   scale_min: null, scale_max: null, multi: 1, results_hidden: 1, answer_shown: 0, correct: JSON.stringify([1, 2]), display: 'donut',
   tally: { counts: [0, 0, 0], totalVotes: 0 },
 };
@@ -37,7 +37,7 @@ describe('presenter helpers', () => {
     expect(q).toMatchObject({ resultsHidden: false, correct: [1, 2], options: ['Red', 'Green', 'Blue'], multi: true, display: 'donut' });
   });
 
-  it('labels room statuses', () => {
+  it('labels storm statuses', () => {
     expect(statusLabel('active')).toBe('Live');
     expect(statusLabel('lobby')).toBe('Lobby');
     expect(statusLabel('closed')).toBe('Closed');

@@ -3,9 +3,9 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import type * as Ably from 'ably';
 import { api, ApiError } from '@/api';
-import { subscribeRoom } from '@/composables/useRoomChannel';
+import { subscribeStorm } from '@/composables/useStormChannel';
 import { normalizeTally, responsesLabel } from '@/lib/tally';
-import type { ClosedQuestion, Question, RoomState, Tally } from '@/shared/types';
+import type { ClosedQuestion, Question, StormState, Tally } from '@/shared/types';
 import QrCode from '@/components/QrCode.vue';
 import BrandMark from '@/components/BrandMark.vue';
 import QuestionResults from '@/components/QuestionResults.vue';
@@ -19,11 +19,11 @@ const lockedId = computed(() => {
   return value && /^\d+$/.test(value) ? Number(value) : null;
 });
 
-const roomCode = ref<string | null>(null);
+const stormCode = ref<string | null>(null);
 const currentQuestion = ref<Question | null>(null);
 const tally = ref<Tally>(normalizeTally(null));
 const slides = ref<ClosedQuestion[] | null>(null);
-const roomClosed = ref(false);
+const stormClosed = ref(false);
 const showConnect = ref(false);
 const connected = ref(false);
 const connectedCount = ref(0);
@@ -32,11 +32,11 @@ const loading = ref(true);
 const lockedReady = ref(false);
 let ably: Ably.Realtime | null = null;
 
-const voteUrl = computed(() => `${window.location.origin}/vote/${encodeURIComponent(roomCode.value ?? '')}`);
+const voteUrl = computed(() => `${window.location.origin}/vote/${encodeURIComponent(stormCode.value ?? '')}`);
 const voteUrlLabel = computed(() => voteUrl.value.replace(/^https?:\/\//, ''));
 const total = computed(() => tally.value.totalVotes || 0);
 const showResponseCount = computed(
-  () => !roomClosed.value && !currentQuestion.value?.resultsHidden && !(lockedId.value && !currentQuestion.value),
+  () => !stormClosed.value && !currentQuestion.value?.resultsHidden && !(lockedId.value && !currentQuestion.value),
 );
 
 function failWith(err: unknown) {
@@ -44,11 +44,11 @@ function failWith(err: unknown) {
 }
 
 async function loadClosedResults() {
-  const data = await api<{ questions: ClosedQuestion[] }>(`get-room-results?roomCode=${encodeURIComponent(roomCode.value ?? '')}`);
+  const data = await api<{ questions: ClosedQuestion[] }>(`get-storm-results?stormCode=${encodeURIComponent(stormCode.value ?? '')}`);
   slides.value = data.questions;
 }
 
-// A results link pinned to one question makes that question live (never reopening a closed room).
+// A results link pinned to one question makes that question live (never reopening a closed storm).
 async function activateLocked() {
   try {
     await api('results-activate', { method: 'POST', body: JSON.stringify({ resultsKey: resultsKey.value, questionId: lockedId.value }) });
@@ -59,12 +59,12 @@ async function activateLocked() {
 
 async function loadLocked() {
   const data = await api<{ question: Question | null; tally: Tally | null }>(
-    `get-question-results?roomCode=${encodeURIComponent(roomCode.value ?? '')}&questionId=${lockedId.value}`,
+    `get-question-results?stormCode=${encodeURIComponent(stormCode.value ?? '')}&questionId=${lockedId.value}`,
   );
   currentQuestion.value = data.question;
   lockedReady.value = true;
   tally.value = normalizeTally(data.tally);
-  roomClosed.value = false;
+  stormClosed.value = false;
   showConnect.value = false;
 }
 
@@ -75,20 +75,20 @@ function onState(data: { status: string; currentQuestion: Question | null; initi
   }
   currentQuestion.value = data.currentQuestion;
   tally.value = normalizeTally(data.initialTally);
-  roomClosed.value = data.status === 'closed';
+  stormClosed.value = data.status === 'closed';
   showConnect.value = !!data.showConnect;
-  if (roomClosed.value) loadClosedResults().catch(failWith);
+  if (stormClosed.value) loadClosedResults().catch(failWith);
 }
 
 onMounted(async () => {
   if (!resultsKey.value) {
-    loadError.value = 'No room specified.';
+    loadError.value = 'No Storm specified.';
     loading.value = false;
     return;
   }
   try {
-    const resolved = await api<{ roomCode: string }>(`resolve-results-key?key=${encodeURIComponent(resultsKey.value)}`);
-    roomCode.value = resolved.roomCode;
+    const resolved = await api<{ stormCode: string }>(`resolve-results-key?key=${encodeURIComponent(resultsKey.value)}`);
+    stormCode.value = resolved.stormCode;
   } catch (err) {
     loading.value = false;
     loadError.value = err instanceof ApiError && err.status === 404 ? 'Results not found.' : (err as Error)?.message || 'Something went wrong';
@@ -100,12 +100,12 @@ onMounted(async () => {
       await activateLocked();
       await loadLocked();
     } else {
-      const state = await api<RoomState>(`get-room-state?roomCode=${encodeURIComponent(roomCode.value)}`);
+      const state = await api<StormState>(`get-storm-state?stormCode=${encodeURIComponent(stormCode.value)}`);
       currentQuestion.value = state.currentQuestion;
       tally.value = normalizeTally(state.tally);
-      roomClosed.value = state.status === 'closed';
+      stormClosed.value = state.status === 'closed';
       showConnect.value = !!state.showConnect;
-      if (roomClosed.value) await loadClosedResults();
+      if (stormClosed.value) await loadClosedResults();
     }
   } catch (err) {
     loading.value = false;
@@ -114,8 +114,8 @@ onMounted(async () => {
   }
 
   loading.value = false;
-  ably = subscribeRoom(
-    roomCode.value,
+  ably = subscribeStorm(
+    stormCode.value,
     {
       state: onState,
       tally: (data: Tally & { questionId: number }) => {
@@ -137,7 +137,7 @@ onBeforeUnmount(() => ably?.close());
       <span class="brand">
         <BrandMark />
       </span>
-      <span v-if="!roomClosed" class="badge" :class="connected ? 'active' : 'lobby'">
+      <span v-if="!stormClosed" class="badge" :class="connected ? 'active' : 'lobby'">
         <span class="dot" :class="{ pulse: connected }"></span>
         <span>{{ connected ? 'Live' : 'Connecting\u2026' }}</span>
       </span>
@@ -151,11 +151,11 @@ onBeforeUnmount(() => ably?.close());
         <span>Loading&hellip;</span>
       </div>
 
-      <ResultsCarousel v-else-if="roomCode && roomClosed && slides" :slides="slides" large :show-nav="false" />
+      <ResultsCarousel v-else-if="stormCode && stormClosed && slides" :slides="slides" large :show-nav="false" />
 
       <div v-else-if="lockedId && lockedReady && !currentQuestion" class="not-active" role="status">This question isn&rsquo;t active right now</div>
 
-      <div v-else-if="currentQuestion && !roomClosed">
+      <div v-else-if="currentQuestion && !stormClosed">
         <h1 class="prompt">{{ currentQuestion.prompt }}</h1>
         <QuestionResults :question="currentQuestion" :tally="tally" projector />
       </div>
@@ -172,18 +172,18 @@ onBeforeUnmount(() => ably?.close());
         </span>
       </div>
       <p class="attribution">
-        Copyright&nbsp;<a href="https://codepenguin.com" title="David Lambert (Code Penguin)">David&nbsp;Lambert&nbsp;(Code&nbsp;Penguin)</a>
+        Copyright&nbsp;<a href="https://codepenguin.com" rel="noopener noreferrer" title="David Lambert (Code Penguin)">David&nbsp;Lambert&nbsp;(Code&nbsp;Penguin)</a>
       </p>
     </div>
 
     <footer class="footer">
       <div class="footer-info">
         <span v-if="showResponseCount"><strong>{{ total }}</strong> {{ responsesLabel(total) }}</span>
-        <span v-if="roomClosed">Swipe or use the arrow keys to browse questions</span>
-        <span v-if="roomCode">Room {{ roomCode }}</span>
+        <span v-if="stormClosed">Swipe or use the arrow keys to browse questions</span>
+        <span v-if="stormCode">Storm code {{ stormCode }}</span>
       </div>
       <p class="attribution">
-        Copyright&nbsp;<a href="https://codepenguin.com" title="David Lambert (Code Penguin)">David&nbsp;Lambert&nbsp;(Code&nbsp;Penguin)</a>
+        Copyright&nbsp;<a href="https://codepenguin.com" rel="noopener noreferrer" title="David Lambert (Code Penguin)">David&nbsp;Lambert&nbsp;(Code&nbsp;Penguin)</a>
       </p>
     </footer>
   </div>

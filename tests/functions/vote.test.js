@@ -27,11 +27,11 @@ describe('vote function', () => {
     const db = createDb();
     await initSchema(db);
     await db.execute({
-      sql: `INSERT INTO rooms (admin_key_hash, room_code, status, current_question_id, created_at) VALUES (?, ?, 'active', 1, ?)`,
-      args: ['hash1', 'ROOM01', Date.now()],
+      sql: `INSERT INTO storms (admin_key_hash, storm_code, status, current_question_id, created_at) VALUES (?, ?, 'active', 1, ?)`,
+      args: ['hash1', 'STORM01', Date.now()],
     });
     await db.execute({
-      sql: `INSERT INTO questions (id, room_code, order_index, type, prompt, options, created_at) VALUES (1, 'ROOM01', 0, 'choice', 'Pick one', ?, ?)`,
+      sql: `INSERT INTO questions (id, storm_code, order_index, type, prompt, options, created_at) VALUES (1, 'STORM01', 0, 'choice', 'Pick one', ?, ?)`,
       args: [JSON.stringify(['A', 'B']), Date.now()],
     });
     vi.clearAllMocks();
@@ -44,27 +44,27 @@ describe('vote function', () => {
   it('records a vote and publishes a tally', async () => {
     const res = await handler({
       httpMethod: 'POST',
-      body: JSON.stringify({ roomCode: 'ROOM01', questionId: 1, deviceId: 'dev-a', value: 0 }),
+      body: JSON.stringify({ stormCode: 'STORM01', questionId: 1, deviceId: 'dev-a', value: 0 }),
     });
     expect(res.statusCode).toBe(200);
     const body = JSON.parse(res.body);
     expect(body.tally.counts).toEqual([1, 0]);
-    expect(publishEvent).toHaveBeenCalledWith('ROOM01', 'tally', expect.objectContaining({ questionId: 1 }));
+    expect(publishEvent).toHaveBeenCalledWith('STORM01', 'tally', expect.objectContaining({ questionId: 1 }));
   });
 
   describe('multi-select question', () => {
     beforeEach(async () => {
       const db = createDb();
       await db.execute({
-        sql: `INSERT INTO questions (id, room_code, order_index, type, prompt, options, multi, created_at) VALUES (2, 'ROOM01', 1, 'choice', 'Pick any', ?, 1, ?)`,
+        sql: `INSERT INTO questions (id, storm_code, order_index, type, prompt, options, multi, created_at) VALUES (2, 'STORM01', 1, 'choice', 'Pick any', ?, 1, ?)`,
         args: [JSON.stringify(['A', 'B', 'C']), Date.now()],
       });
-      await db.execute({ sql: 'UPDATE rooms SET current_question_id = 2', args: [] });
+      await db.execute({ sql: 'UPDATE storms SET current_question_id = 2', args: [] });
     });
 
     const vote = (deviceId, value) => handler({
       httpMethod: 'POST',
-      body: JSON.stringify({ roomCode: 'ROOM01', questionId: 2, deviceId, value }),
+      body: JSON.stringify({ stormCode: 'STORM01', questionId: 2, deviceId, value }),
     });
 
     it('tallies each selected option once per person and counts people as the total', async () => {
@@ -90,10 +90,10 @@ describe('vote function', () => {
 
     it('single-choice questions still reject arrays', async () => {
       const db = createDb();
-      await db.execute({ sql: 'UPDATE rooms SET current_question_id = 1', args: [] });
+      await db.execute({ sql: 'UPDATE storms SET current_question_id = 1', args: [] });
       const res = await handler({
         httpMethod: 'POST',
-        body: JSON.stringify({ roomCode: 'ROOM01', questionId: 1, deviceId: 'd9', value: [0, 1] }),
+        body: JSON.stringify({ stormCode: 'STORM01', questionId: 1, deviceId: 'd9', value: [0, 1] }),
       });
       expect(res.statusCode).toBe(400);
     });
@@ -102,11 +102,11 @@ describe('vote function', () => {
   it('lets a device change its vote: the new choice replaces the old and the total stays 1', async () => {
     await handler({
       httpMethod: 'POST',
-      body: JSON.stringify({ roomCode: 'ROOM01', questionId: 1, deviceId: 'dev-a', value: 0 }),
+      body: JSON.stringify({ stormCode: 'STORM01', questionId: 1, deviceId: 'dev-a', value: 0 }),
     });
     const res = await handler({
       httpMethod: 'POST',
-      body: JSON.stringify({ roomCode: 'ROOM01', questionId: 1, deviceId: 'dev-a', value: 1 }),
+      body: JSON.stringify({ stormCode: 'STORM01', questionId: 1, deviceId: 'dev-a', value: 1 }),
     });
     expect(res.statusCode).toBe(200);
     expect(JSON.parse(res.body).tally).toEqual({ counts: [0, 1], totalVotes: 1 });
@@ -115,22 +115,22 @@ describe('vote function', () => {
   it('rejects a vote for a question that is not currently active', async () => {
     const res = await handler({
       httpMethod: 'POST',
-      body: JSON.stringify({ roomCode: 'ROOM01', questionId: 99, deviceId: 'dev-b', value: 0 }),
+      body: JSON.stringify({ stormCode: 'STORM01', questionId: 99, deviceId: 'dev-b', value: 0 }),
     });
     expect(res.statusCode).toBe(409);
   });
 
-  it('rejects a vote when room status is not active, even if question ID matches', async () => {
-    // Update the existing room to status='lobby' while keeping current_question_id=1
+  it('rejects a vote when storm status is not active, even if question ID matches', async () => {
+    // Update the existing storm to status='lobby' while keeping current_question_id=1
     const db = createDb();
     await db.execute({
-      sql: 'UPDATE rooms SET status = ? WHERE room_code = ?',
-      args: ['lobby', 'ROOM01'],
+      sql: 'UPDATE storms SET status = ? WHERE storm_code = ?',
+      args: ['lobby', 'STORM01'],
     });
 
     const res = await handler({
       httpMethod: 'POST',
-      body: JSON.stringify({ roomCode: 'ROOM01', questionId: 1, deviceId: 'dev-c', value: 0 }),
+      body: JSON.stringify({ stormCode: 'STORM01', questionId: 1, deviceId: 'dev-c', value: 0 }),
     });
     expect(res.statusCode).toBe(409);
   });
@@ -138,7 +138,7 @@ describe('vote function', () => {
   it('reports code not_active on a 409 for an inactive question', async () => {
     const res = await handler({
       httpMethod: 'POST',
-      body: JSON.stringify({ roomCode: 'ROOM01', questionId: 99, deviceId: 'dev-code', value: 0 }),
+      body: JSON.stringify({ stormCode: 'STORM01', questionId: 99, deviceId: 'dev-code', value: 0 }),
     });
     expect(JSON.parse(res.body).code).toBe('not_active');
   });
@@ -148,16 +148,16 @@ describe('vote function', () => {
     await db.execute({ sql: 'UPDATE questions SET results_hidden = 1 WHERE id = 1', args: [] });
     const res = await handler({
       httpMethod: 'POST',
-      body: JSON.stringify({ roomCode: 'ROOM01', questionId: 1, deviceId: 'dev-h', value: 0 }),
+      body: JSON.stringify({ stormCode: 'STORM01', questionId: 1, deviceId: 'dev-h', value: 0 }),
     });
     expect(JSON.parse(res.body).tally).toEqual({ totalVotes: 1, hidden: true });
-    expect(publishEvent).toHaveBeenCalledWith('ROOM01', 'tally', { questionId: 1, totalVotes: 1, hidden: true });
+    expect(publishEvent).toHaveBeenCalledWith('STORM01', 'tally', { questionId: 1, totalVotes: 1, hidden: true });
   });
 
   it('rejects an out-of-range choice vote value', async () => {
     const res = await handler({
       httpMethod: 'POST',
-      body: JSON.stringify({ roomCode: 'ROOM01', questionId: 1, deviceId: 'dev-oob', value: 2 }),
+      body: JSON.stringify({ stormCode: 'STORM01', questionId: 1, deviceId: 'dev-oob', value: 2 }),
     });
     expect(res.statusCode).toBe(400);
     expect(JSON.parse(res.body)).toEqual({ error: 'Invalid vote value' });
@@ -167,7 +167,7 @@ describe('vote function', () => {
   it('rejects a negative choice vote value', async () => {
     const res = await handler({
       httpMethod: 'POST',
-      body: JSON.stringify({ roomCode: 'ROOM01', questionId: 1, deviceId: 'dev-neg', value: -1 }),
+      body: JSON.stringify({ stormCode: 'STORM01', questionId: 1, deviceId: 'dev-neg', value: -1 }),
     });
     expect(res.statusCode).toBe(400);
     expect(JSON.parse(res.body)).toEqual({ error: 'Invalid vote value' });
@@ -176,31 +176,31 @@ describe('vote function', () => {
   it('rejects an out-of-range rating vote value', async () => {
     const db = createDb();
     await db.execute({
-      sql: `INSERT INTO questions (id, room_code, order_index, type, prompt, scale_min, scale_max, created_at) VALUES (2, 'ROOM01', 1, 'rating', 'Rate it', 1, 5, ?)`,
+      sql: `INSERT INTO questions (id, storm_code, order_index, type, prompt, scale_min, scale_max, created_at) VALUES (2, 'STORM01', 1, 'rating', 'Rate it', 1, 5, ?)`,
       args: [Date.now()],
     });
     await db.execute({
-      sql: 'UPDATE rooms SET current_question_id = ? WHERE room_code = ?',
-      args: [2, 'ROOM01'],
+      sql: 'UPDATE storms SET current_question_id = ? WHERE storm_code = ?',
+      args: [2, 'STORM01'],
     });
 
     const tooHigh = await handler({
       httpMethod: 'POST',
-      body: JSON.stringify({ roomCode: 'ROOM01', questionId: 2, deviceId: 'dev-rate-a', value: 6 }),
+      body: JSON.stringify({ stormCode: 'STORM01', questionId: 2, deviceId: 'dev-rate-a', value: 6 }),
     });
     expect(tooHigh.statusCode).toBe(400);
     expect(JSON.parse(tooHigh.body)).toEqual({ error: 'Invalid vote value' });
 
     const tooLow = await handler({
       httpMethod: 'POST',
-      body: JSON.stringify({ roomCode: 'ROOM01', questionId: 2, deviceId: 'dev-rate-b', value: 0 }),
+      body: JSON.stringify({ stormCode: 'STORM01', questionId: 2, deviceId: 'dev-rate-b', value: 0 }),
     });
     expect(tooLow.statusCode).toBe(400);
     expect(JSON.parse(tooLow.body)).toEqual({ error: 'Invalid vote value' });
 
     const ok = await handler({
       httpMethod: 'POST',
-      body: JSON.stringify({ roomCode: 'ROOM01', questionId: 2, deviceId: 'dev-rate-c', value: 3 }),
+      body: JSON.stringify({ stormCode: 'STORM01', questionId: 2, deviceId: 'dev-rate-c', value: 3 }),
     });
     expect(ok.statusCode).toBe(200);
   });
@@ -226,7 +226,7 @@ describe('vote function', () => {
     await expect(
       handler({
         httpMethod: 'POST',
-        body: JSON.stringify({ roomCode: 'ROOM01', questionId: 1, deviceId: 'dev-crash', value: 0 }),
+        body: JSON.stringify({ stormCode: 'STORM01', questionId: 1, deviceId: 'dev-crash', value: 0 }),
       })
     ).rejects.toThrow(/connection reset/i);
   });

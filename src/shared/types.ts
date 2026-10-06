@@ -1,7 +1,7 @@
 // Shapes returned by the Netlify functions. Keep in sync with lib/question.js and lib/tally.js.
 
 export type QuestionType = 'choice' | 'rating';
-export type RoomStatus = 'lobby' | 'active' | 'closed';
+export type StormStatus = 'lobby' | 'active' | 'closed';
 export type DisplayType = 'bars' | 'donut';
 
 export interface Question {
@@ -37,8 +37,8 @@ export interface HiddenTally {
 
 export type Tally = ChoiceTally | RatingTally | HiddenTally;
 
-export interface RoomState {
-  status: RoomStatus;
+export interface StormState {
+  status: StormStatus;
   currentQuestion: Question | null;
   tally: Tally | null;
   showConnect: boolean;
@@ -46,13 +46,13 @@ export interface RoomState {
 
 export type VisibleTally = ChoiceTally | RatingTally;
 
-/** A question plus its final tally, as returned by get-room-results for closed rooms. */
+/** A question plus its final tally, as returned by get-storm-results for closed storms. */
 export type ClosedQuestion = Question & { tally: VisibleTally };
 
 /** A question row as the presenter API returns it (database column names, JSON stored as text). */
 export interface AdminQuestion {
   id: number;
-  room_code: string;
+  storm_code: string;
   order_index: number;
   type: QuestionType;
   prompt: string;
@@ -67,17 +67,17 @@ export interface AdminQuestion {
   tally: VisibleTally;
 }
 
-export interface AdminRoom {
-  room_code: string;
-  status: RoomStatus;
+export interface AdminStorm {
+  storm_code: string;
+  status: StormStatus;
   current_question_id: number | null;
 }
 
 export interface LicenseLimits {
-  roomInactivityHours: number;
-  maxQuestionsPerRoom?: number;
-  maxAudiencePerRoom?: number;
-  maxActiveRooms?: number;
+  stormInactivityHours: number;
+  maxQuestionsPerStorm?: number;
+  maxAudiencePerStorm?: number;
+  maxActiveStorms?: number;
 }
 
 /** What the server reports about the license a request runs under (never including the license id). */
@@ -88,8 +88,8 @@ export interface LicenseSummary {
   limits: LicenseLimits;
 }
 
-export interface AdminRoomData {
-  room: AdminRoom;
+export interface AdminStormData {
+  storm: AdminStorm;
   questions: AdminQuestion[];
   showConnect: boolean;
   resultsKey: string;

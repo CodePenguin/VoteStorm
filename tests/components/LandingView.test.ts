@@ -33,16 +33,16 @@ describe('LandingView', () => {
     expect(wrapper.findAll('.step').map((s) => s.find('h3').text())).toEqual(['Create', 'Share', 'Watch live']);
   });
 
-  it('creates a room in one click and opens the presenter', async () => {
-    apiMock.mockResolvedValue({ adminKey: 'SECRETKEY', roomCode: 'ABC234' });
+  it('creates a storm in one click and opens the presenter', async () => {
+    apiMock.mockResolvedValue({ adminKey: 'SECRETKEY', stormCode: 'ABC234' });
     const { wrapper, router } = await mountAt('/');
     await wrapper.find('button').trigger('click');
     await flushPromises();
-    expect(apiMock).toHaveBeenCalledWith('create-room', { method: 'POST' });
+    expect(apiMock).toHaveBeenCalledWith('create-storm', { method: 'POST' });
     await vi.waitFor(() => expect(router.currentRoute.value.fullPath).toBe('/presenter/SECRETKEY'), { timeout: 10000 });
   });
 
-  it('points to the license page when room creation is refused because of the license', async () => {
+  it('points to the license page when storm creation is refused because of the license', async () => {
     apiMock.mockRejectedValue(Object.assign(new Error('This license has expired'), { code: 'license_invalid' }));
     const { wrapper } = await mountAt('/');
     await wrapper.find('button').trigger('click');
@@ -58,7 +58,7 @@ describe('LandingView', () => {
     await flushPromises();
     expect(wrapper.find('.alert.error').text()).toBe('Database unavailable');
     expect((wrapper.find('button').element as HTMLButtonElement).disabled).toBe(false);
-    expect(wrapper.find('button').text()).toBe('Create a room');
+    expect(wrapper.find('button').text()).toBe('Create a Storm');
     expect(router.currentRoute.value.fullPath).toBe('/');
   });
 });

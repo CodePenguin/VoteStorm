@@ -1,18 +1,18 @@
 import { describe, it, expect } from 'vitest';
-import { generateAdminKey, hashAdminKey, deriveRoomCode } from '../../lib/roomCode.js';
+import { generateAdminKey, hashAdminKey, deriveStormCode } from '../../lib/stormCode.js';
 
-describe('roomCode', () => {
-  it('derives a 6-character room code deterministically', () => {
+describe('stormCode', () => {
+  it('derives a 6-character storm code deterministically', () => {
     const key = 'test-admin-key-12345';
-    const code1 = deriveRoomCode(key);
-    const code2 = deriveRoomCode(key);
+    const code1 = deriveStormCode(key);
+    const code2 = deriveStormCode(key);
     expect(code1).toBe(code2);
     expect(code1).toHaveLength(6);
     expect(code1).toMatch(/^[A-Z2-7]+$/);
   });
 
   it('produces different codes for different keys', () => {
-    expect(deriveRoomCode('key-a')).not.toBe(deriveRoomCode('key-b'));
+    expect(deriveStormCode('key-a')).not.toBe(deriveStormCode('key-b'));
   });
 
   it('generateAdminKey returns a unique-looking hex string', () => {

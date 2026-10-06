@@ -3,11 +3,11 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createDb, initSchema } from '../../lib/db.js';
-import { generateAdminKey, hashAdminKey, deriveRoomCode } from '../../lib/roomCode.js';
-import { handler } from '../../netlify/functions/get-room-results.js';
+import { generateAdminKey, hashAdminKey, deriveStormCode } from '../../lib/stormCode.js';
+import { handler } from '../../netlify/functions/get-storm-results.js';
 
-describe('get-room-results function', () => {
-  let roomCode;
+describe('get-storm-results function', () => {
+  let stormCode;
   let db;
 
   beforeEach(async () => {
@@ -16,18 +16,18 @@ describe('get-room-results function', () => {
     db = createDb();
     await initSchema(db);
     const adminKey = generateAdminKey();
-    roomCode = deriveRoomCode(adminKey);
+    stormCode = deriveStormCode(adminKey);
     await db.execute({
-      sql: `INSERT INTO rooms (admin_key_hash, room_code, status, created_at) VALUES (?, ?, 'closed', ?)`,
-      args: [hashAdminKey(adminKey), roomCode, Date.now()],
+      sql: `INSERT INTO storms (admin_key_hash, storm_code, status, created_at) VALUES (?, ?, 'closed', ?)`,
+      args: [hashAdminKey(adminKey), stormCode, Date.now()],
     });
     await db.execute({
-      sql: `INSERT INTO questions (id, room_code, order_index, type, prompt, options, created_at) VALUES (1, ?, 0, 'choice', 'Pick one', ?, ?)`,
-      args: [roomCode, JSON.stringify(['A', 'B']), Date.now()],
+      sql: `INSERT INTO questions (id, storm_code, order_index, type, prompt, options, created_at) VALUES (1, ?, 0, 'choice', 'Pick one', ?, ?)`,
+      args: [stormCode, JSON.stringify(['A', 'B']), Date.now()],
     });
     await db.execute({
-      sql: `INSERT INTO questions (id, room_code, order_index, type, prompt, scale_min, scale_max, created_at) VALUES (2, ?, 1, 'rating', 'Rate it', 1, 5, ?)`,
-      args: [roomCode, Date.now()],
+      sql: `INSERT INTO questions (id, storm_code, order_index, type, prompt, scale_min, scale_max, created_at) VALUES (2, ?, 1, 'rating', 'Rate it', 1, 5, ?)`,
+      args: [stormCode, Date.now()],
     });
     await db.execute({ sql: 'INSERT INTO votes (question_id, device_id, value, created_at) VALUES (1, ?, ?, ?)', args: ['d1', '0', Date.now()] });
     await db.execute({ sql: 'INSERT INTO votes (question_id, device_id, value, created_at) VALUES (1, ?, ?, ?)', args: ['d2', '0', Date.now()] });
@@ -38,8 +38,8 @@ describe('get-room-results function', () => {
     delete process.env.TURSO_DATABASE_URL;
   });
 
-  it('returns every question in order with its tally when the room is closed', async () => {
-    const res = await handler({ httpMethod: 'GET', queryStringParameters: { roomCode } });
+  it('returns every question in order with its tally when the storm is closed', async () => {
+    const res = await handler({ httpMethod: 'GET', queryStringParameters: { stormCode } });
     expect(res.statusCode).toBe(200);
     const { questions } = JSON.parse(res.body);
     expect(questions.map((q) => q.prompt)).toEqual(['Pick one', 'Rate it']);
@@ -50,36 +50,36 @@ describe('get-room-results function', () => {
 
   it('includes questions that have zero votes', async () => {
     await db.execute({
-      sql: `INSERT INTO questions (id, room_code, order_index, type, prompt, options, created_at) VALUES (3, ?, 2, 'choice', 'Empty', ?, ?)`,
-      args: [roomCode, JSON.stringify(['X', 'Y']), Date.now()],
+      sql: `INSERT INTO questions (id, storm_code, order_index, type, prompt, options, created_at) VALUES (3, ?, 2, 'choice', 'Empty', ?, ?)`,
+      args: [stormCode, JSON.stringify(['X', 'Y']), Date.now()],
     });
-    const res = await handler({ httpMethod: 'GET', queryStringParameters: { roomCode } });
+    const res = await handler({ httpMethod: 'GET', queryStringParameters: { stormCode } });
     const { questions } = JSON.parse(res.body);
     expect(questions[2].tally).toEqual({ counts: [0, 0], totalVotes: 0 });
   });
 
-  it('returns an empty list for a closed room with no questions', async () => {
+  it('returns an empty list for a closed storm with no questions', async () => {
     await db.execute({ sql: 'DELETE FROM votes', args: [] });
     await db.execute({ sql: 'DELETE FROM questions', args: [] });
-    const res = await handler({ httpMethod: 'GET', queryStringParameters: { roomCode } });
+    const res = await handler({ httpMethod: 'GET', queryStringParameters: { stormCode } });
     expect(res.statusCode).toBe(200);
     expect(JSON.parse(res.body)).toEqual({ questions: [] });
   });
 
-  it('refuses with 403 and no results while the room is still open', async () => {
-    await db.execute({ sql: `UPDATE rooms SET status = 'active' WHERE room_code = ?`, args: [roomCode] });
-    const res = await handler({ httpMethod: 'GET', queryStringParameters: { roomCode } });
+  it('refuses with 403 and no results while the storm is still open', async () => {
+    await db.execute({ sql: `UPDATE storms SET status = 'active' WHERE storm_code = ?`, args: [stormCode] });
+    const res = await handler({ httpMethod: 'GET', queryStringParameters: { stormCode } });
     expect(res.statusCode).toBe(403);
     expect(JSON.parse(res.body).questions).toBeUndefined();
   });
 
-  it('404s for an unknown room', async () => {
-    const res = await handler({ httpMethod: 'GET', queryStringParameters: { roomCode: 'NOPE00' } });
+  it('404s for an unknown storm', async () => {
+    const res = await handler({ httpMethod: 'GET', queryStringParameters: { stormCode: 'NOPE00' } });
     expect(res.statusCode).toBe(404);
   });
 
-  it('400s without a roomCode and 405s for non-GET', async () => {
+  it('400s without a stormCode and 405s for non-GET', async () => {
     expect((await handler({ httpMethod: 'GET', queryStringParameters: {} })).statusCode).toBe(400);
-    expect((await handler({ httpMethod: 'POST', queryStringParameters: { roomCode } })).statusCode).toBe(405);
+    expect((await handler({ httpMethod: 'POST', queryStringParameters: { stormCode } })).statusCode).toBe(405);
   });
 });

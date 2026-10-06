@@ -1,7 +1,7 @@
 import { computed, ref, type Ref } from 'vue';
 import { api, ApiError } from '@/api';
 import { copyText } from '@/composables/useClipboard';
-import type { AdminQuestion, AdminRoom, AdminRoomData, LicenseSummary, QuestionPayload, Tally, VisibleTally } from '@/shared/types';
+import type { AdminQuestion, AdminStorm, AdminStormData, LicenseSummary, QuestionPayload, Tally, VisibleTally } from '@/shared/types';
 
 export interface PresenterOptions {
   confirm?: (message: string) => boolean;
@@ -12,7 +12,7 @@ const message = (e: unknown) => (e as Error)?.message || 'Something went wrong';
 export function usePresenter(adminKey: Ref<string>, options: PresenterOptions = {}) {
   const confirmFn = options.confirm ?? ((m: string) => window.confirm(m));
 
-  const room = ref<AdminRoom | null>(null);
+  const storm = ref<AdminStorm | null>(null);
   const questions = ref<AdminQuestion[]>([]);
   const showConnect = ref(false);
   const resultsKey = ref<string | null>(null);
@@ -21,14 +21,14 @@ export function usePresenter(adminKey: Ref<string>, options: PresenterOptions = 
   const copiedQuestion = ref<number | null>(null);
 
   const enc = () => encodeURIComponent(adminKey.value);
-  const patchRoom = (body: Record<string, unknown>) =>
-    api('admin-room', { method: 'PATCH', body: JSON.stringify({ adminKey: adminKey.value, ...body }) });
+  const patchStorm = (body: Record<string, unknown>) =>
+    api('admin-storm', { method: 'PATCH', body: JSON.stringify({ adminKey: adminKey.value, ...body }) });
   const patchQuestion = (body: Record<string, unknown>) =>
     api('admin-questions', { method: 'PATCH', body: JSON.stringify({ adminKey: adminKey.value, ...body }) });
 
   async function load() {
-    const data = await api<AdminRoomData>(`admin-room?adminKey=${enc()}`);
-    room.value = data.room;
+    const data = await api<AdminStormData>(`admin-storm?adminKey=${enc()}`);
+    storm.value = data.storm;
     questions.value = data.questions;
     showConnect.value = !!data.showConnect;
     resultsKey.value = data.resultsKey;
@@ -67,8 +67,8 @@ export function usePresenter(adminKey: Ref<string>, options: PresenterOptions = 
     q.tally = data as VisibleTally;
   }
 
-  const currentQ = computed(() => questions.value.find((q) => q.id === room.value?.current_question_id) ?? null);
-  const currentIndex = computed(() => questions.value.findIndex((q) => q.id === room.value?.current_question_id));
+  const currentQ = computed(() => questions.value.find((q) => q.id === storm.value?.current_question_id) ?? null);
+  const currentIndex = computed(() => questions.value.findIndex((q) => q.id === storm.value?.current_question_id));
 
   function canStep(dir: number): boolean {
     const i = currentIndex.value;
@@ -76,7 +76,7 @@ export function usePresenter(adminKey: Ref<string>, options: PresenterOptions = 
     return i + dir >= 0 && i + dir < questions.value.length;
   }
 
-  const activate = (questionId: number) => act(() => patchRoom({ status: 'active', currentQuestionId: questionId }));
+  const activate = (questionId: number) => act(() => patchStorm({ status: 'active', currentQuestionId: questionId }));
 
   async function stepQuestion(dir: number) {
     if (!canStep(dir)) return;
@@ -110,13 +110,13 @@ export function usePresenter(adminKey: Ref<string>, options: PresenterOptions = 
     });
   }
 
-  async function deleteRoom(): Promise<boolean> {
-    if (!confirmFn('Delete this room? This cannot be undone.')) return false;
-    return act(() => api('admin-room', { method: 'DELETE', body: JSON.stringify({ adminKey: adminKey.value }) }), false);
+  async function deleteStorm(): Promise<boolean> {
+    if (!confirmFn('Delete this Storm? This cannot be undone.')) return false;
+    return act(() => api('admin-storm', { method: 'DELETE', body: JSON.stringify({ adminKey: adminKey.value }) }), false);
   }
 
   async function setConnect(show: boolean) {
-    if (await act(() => patchRoom({ showConnect: show }), false)) showConnect.value = show;
+    if (await act(() => patchStorm({ showConnect: show }), false)) showConnect.value = show;
   }
 
   const questionLink = (q: AdminQuestion) => `${window.location.origin}/results/${resultsKey.value}?q=${q.id}`;
@@ -135,14 +135,14 @@ export function usePresenter(adminKey: Ref<string>, options: PresenterOptions = 
   }
 
   return {
-    room, questions, showConnect, resultsKey, license, error, copiedQuestion,
+    storm, questions, showConnect, resultsKey, license, error, copiedQuestion,
     currentQ, currentIndex,
-    load, safeLoad, onTally, canStep, stepQuestion, activate, swap, saveQuestion, deleteRoom, setConnect, copyQuestionLink, questionLink,
-    setQuestionFlag: (flags: Record<string, unknown>) => act(() => patchRoom(flags)),
+    load, safeLoad, onTally, canStep, stepQuestion, activate, swap, saveQuestion, deleteStorm, setConnect, copyQuestionLink, questionLink,
+    setQuestionFlag: (flags: Record<string, unknown>) => act(() => patchStorm(flags)),
     resetQuestion: (questionId: number) => act(() => patchQuestion({ questionId, action: 'reset' })),
-    resetRoom: () => act(() => patchRoom({ action: 'reset' })),
-    closeRoom: () => act(() => patchRoom({ status: 'closed' })),
-    reopenRoom: () => act(() => patchRoom({ status: room.value?.current_question_id ? 'active' : 'lobby' })),
+    resetStorm: () => act(() => patchStorm({ action: 'reset' })),
+    closeStorm: () => act(() => patchStorm({ status: 'closed' })),
+    reopenStorm: () => act(() => patchStorm({ status: storm.value?.current_question_id ? 'active' : 'lobby' })),
     deleteQuestion: (questionId: number) =>
       act(() => api('admin-questions', { method: 'DELETE', body: JSON.stringify({ adminKey: adminKey.value, questionId }) })),
   };

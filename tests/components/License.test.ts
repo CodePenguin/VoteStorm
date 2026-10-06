@@ -5,9 +5,9 @@ import { createMemoryHistory, createRouter } from 'vue-router';
 import { routes } from '@/router';
 import type { LicenseSummary } from '@/shared/types';
 
-const anonymous: LicenseSummary = { tier: 'anonymous', name: null, expiresAt: null, limits: { roomInactivityHours: 24 } };
+const anonymous: LicenseSummary = { tier: 'anonymous', name: null, expiresAt: null, limits: { stormInactivityHours: 24 } };
 const licensed: LicenseSummary = {
-  tier: 'licensed', name: 'Acme Training', expiresAt: Date.UTC(2030, 5, 15, 12), limits: { roomInactivityHours: 168, maxQuestionsPerRoom: 40, maxAudiencePerRoom: 500 },
+  tier: 'licensed', name: 'Acme Training', expiresAt: Date.UTC(2030, 5, 15, 12), limits: { stormInactivityHours: 168, maxQuestionsPerStorm: 40, maxAudiencePerStorm: 500 },
 };
 
 const apiMock = vi.fn();
@@ -53,7 +53,7 @@ describe('LicenseView', () => {
     statusServer({});
     const { wrapper } = await mountAt('/license', LicenseView);
     expect(wrapper.find('.plan-name').text()).toBe('Anonymous');
-    expect(wrapper.text()).toContain('Rooms expire after');
+    expect(wrapper.text()).toContain('Storms expire after');
     expect(wrapper.text()).toContain('24 hours of inactivity');
     expect(wrapper.text()).toContain('Unlimited');
     expect(wrapper.text()).toContain('Load a license');

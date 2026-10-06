@@ -13,32 +13,32 @@ describe('describeActivity', () => {
 
   it('says what is happening for each kind of user action', () => {
     expect(describeActivity('vote', 'POST', '{}')).toEqual({ working: 'Submitting your vote…', done: 'Vote submitted' });
-    expect(describeActivity('create-room', 'POST')?.done).toBe('Room created');
+    expect(describeActivity('create-storm', 'POST')?.done).toBe('Storm created');
     expect(describeActivity('admin-questions', 'POST', '{}')?.done).toBe('Question added');
     expect(describeActivity('admin-questions', 'DELETE', '{}')?.done).toBe('Question deleted');
     expect(patch('admin-questions', { edit: {} })?.done).toBe('Question saved');
     expect(patch('admin-questions', { action: 'reset' })?.done).toBe('Votes reset');
     expect(patch('admin-questions', { orderIndex: 2 })?.done).toBe('Order saved');
-    expect(patch('admin-room', { showConnect: true })?.done).toBe('Join screen updated');
-    expect(patch('admin-room', { resultsHidden: true })?.done).toBe('Results updated');
-    expect(patch('admin-room', { answerShown: true })?.done).toBe('Results updated');
-    expect(patch('admin-room', { status: 'active', currentQuestionId: 4 })?.done).toBe('Question changed');
-    expect(patch('admin-room', { status: 'closed' })?.done).toBe('Room closed');
-    expect(patch('admin-room', { status: 'lobby' })?.done).toBe('Room updated');
-    expect(patch('admin-room', { action: 'reset' })?.done).toBe('Votes reset');
-    expect(describeActivity('admin-room', 'DELETE', '{}')?.done).toBe('Room deleted');
+    expect(patch('admin-storm', { showConnect: true })?.done).toBe('Join screen updated');
+    expect(patch('admin-storm', { resultsHidden: true })?.done).toBe('Results updated');
+    expect(patch('admin-storm', { answerShown: true })?.done).toBe('Results updated');
+    expect(patch('admin-storm', { status: 'active', currentQuestionId: 4 })?.done).toBe('Question changed');
+    expect(patch('admin-storm', { status: 'closed' })?.done).toBe('Storm ended');
+    expect(patch('admin-storm', { status: 'lobby' })?.done).toBe('Storm updated');
+    expect(patch('admin-storm', { action: 'reset' })?.done).toBe('Votes reset');
+    expect(describeActivity('admin-storm', 'DELETE', '{}')?.done).toBe('Storm deleted');
   });
 
   it('stays quiet for reads and for things the page does by itself', () => {
-    expect(describeActivity('get-room-state?roomCode=X', 'GET')).toBeNull();
-    expect(describeActivity('admin-room?adminKey=k', 'GET')).toBeNull();
+    expect(describeActivity('get-storm-state?stormCode=X', 'GET')).toBeNull();
+    expect(describeActivity('admin-storm?adminKey=k', 'GET')).toBeNull();
     expect(describeActivity('results-activate', 'POST', '{}')).toBeNull();
-    expect(describeActivity('ably-token?roomCode=X', 'GET')).toBeNull();
+    expect(describeActivity('ably-token?stormCode=X', 'GET')).toBeNull();
   });
 
   it('falls back to a generic message for an unknown change', () => {
     expect(describeActivity('something-new', 'POST')).toEqual({ working: 'Saving…', done: 'Saved' });
-    expect(describeActivity('admin-room', 'PATCH', 'not json')).toEqual({ working: 'Saving…', done: 'Saved' });
+    expect(describeActivity('admin-storm', 'PATCH', 'not json')).toEqual({ working: 'Saving…', done: 'Saved' });
   });
 });
 
@@ -93,8 +93,8 @@ describe('activity notice', () => {
   it('shows a failure straight away, keeps it longer, and does not let a later success cover it', () => {
     const failing = beginActivity(labels);
     const other = beginActivity(labels);
-    failing({ ok: false, message: 'This room has reached its audience limit.' });
-    expect(activity.value).toEqual({ kind: 'error', message: 'This room has reached its audience limit.' });
+    failing({ ok: false, message: 'This storm has reached its audience limit.' });
+    expect(activity.value).toEqual({ kind: 'error', message: 'This storm has reached its audience limit.' });
     other({ ok: true });
     vi.advanceTimersByTime(DONE_MS + 100);
     expect(activity.value?.kind).toBe('error');
@@ -145,7 +145,7 @@ describe('api() reports user-triggered requests', () => {
   it('shows the working notice while a slow save is in flight', async () => {
     let release: (r: Response) => void = () => {};
     fetchMock.mockReturnValue(new Promise<Response>((r) => (release = r)));
-    const pending = api('admin-room', { method: 'PATCH', body: JSON.stringify({ showConnect: true }) });
+    const pending = api('admin-storm', { method: 'PATCH', body: JSON.stringify({ showConnect: true }) });
     vi.advanceTimersByTime(SHOW_DELAY_MS + 1);
     expect(activity.value).toEqual({ kind: 'working', message: 'Updating join screen…' });
     release(ok());
@@ -155,9 +155,9 @@ describe('api() reports user-triggered requests', () => {
   });
 
   it('shows the server message when a save fails, and still throws to the caller', async () => {
-    fetchMock.mockResolvedValue(new Response(JSON.stringify({ error: 'This room has reached its limit of 2 questions.' }), { status: 403 }));
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({ error: 'This storm has reached its limit of 2 questions.' }), { status: 403 }));
     await expect(api('admin-questions', { method: 'POST', body: '{}' })).rejects.toThrow('limit of 2 questions');
-    expect(activity.value).toEqual({ kind: 'error', message: 'This room has reached its limit of 2 questions.' });
+    expect(activity.value).toEqual({ kind: 'error', message: 'This storm has reached its limit of 2 questions.' });
   });
 
   it('shows a network failure too', async () => {
@@ -168,8 +168,8 @@ describe('api() reports user-triggered requests', () => {
 
   it('says nothing for reads and background calls', async () => {
     fetchMock.mockImplementation(async () => ok());
-    await api('get-room-state?roomCode=X');
-    await api('admin-room?adminKey=k');
+    await api('get-storm-state?stormCode=X');
+    await api('admin-storm?adminKey=k');
     await api('results-activate', { method: 'POST', body: '{}' });
     vi.advanceTimersByTime(SHOW_DELAY_MS + 10);
     expect(activity.value).toBeNull();

@@ -13,10 +13,10 @@ function expiryText(hours: number): string {
 }
 
 const rows = computed(() => [
-  { label: 'Rooms expire after', value: `${expiryText(props.limits.roomInactivityHours)} of inactivity` },
-  { label: 'Questions per room', value: props.limits.maxQuestionsPerRoom ? String(props.limits.maxQuestionsPerRoom) : 'Unlimited' },
-  { label: 'Audience per room', value: props.limits.maxAudiencePerRoom ? String(props.limits.maxAudiencePerRoom) : 'Unlimited' },
-  { label: 'Active rooms', value: props.limits.maxActiveRooms ? String(props.limits.maxActiveRooms) : 'Unlimited' },
+  { label: 'Storms expire after', value: `${expiryText(props.limits.stormInactivityHours)} of inactivity` },
+  { label: 'Questions per Storm', value: props.limits.maxQuestionsPerStorm ? String(props.limits.maxQuestionsPerStorm) : 'Unlimited' },
+  { label: 'Audience per Storm', value: props.limits.maxAudiencePerStorm ? String(props.limits.maxAudiencePerStorm) : 'Unlimited' },
+  { label: 'Active Storms', value: props.limits.maxActiveStorms ? String(props.limits.maxActiveStorms) : 'Unlimited' },
 ]);
 </script>
 

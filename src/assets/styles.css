@@ -169,7 +169,7 @@ a:hover { text-decoration: underline; }
   * { animation: none !important; transition: none !important; }
 }
 
-/* ---- Results carousel (closed rooms) ---- */
+/* ---- Results carousel (closed storms) ---- */
 .carousel { position: relative; }
 .carousel-track {
   display: flex; overflow-x: auto; scroll-snap-type: x mandatory;

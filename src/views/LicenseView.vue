@@ -34,7 +34,7 @@ async function activate() {
     <div v-if="license.summary.value" class="card" style="margin-top: 16px">
       <div class="card-title">Current plan</div>
       <h2 class="plan-name">{{ isLicensed ? license.summary.value.name || 'Licensed' : 'Anonymous' }}</h2>
-      <p v-if="!isLicensed" class="muted">No license is loaded. Rooms use the default limits below.</p>
+      <p v-if="!isLicensed" class="muted">No license is loaded. Storms use the default limits below.</p>
       <p v-else-if="expires" class="muted">Valid until {{ expires }}</p>
       <LicenseLimitsList v-if="limits" :limits="limits" />
       <div v-if="isLicensed" class="row" style="margin-top: 16px">
@@ -45,7 +45,7 @@ async function activate() {
     <div class="card" style="margin-top: 16px">
       <div class="card-title">{{ isLicensed ? 'Replace license' : 'Load a license' }}</div>
       <p class="muted" style="margin-bottom: 12px">
-        A license is a signed token from whoever runs this VoteStorm server. It sets how long rooms last and how large they can be.
+        A license is a signed token from whoever runs this VoteStorm server. It sets how long Storms last and how large they can be.
         Paste it below, or open the link you were sent.
       </p>
       <label class="field">

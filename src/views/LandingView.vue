@@ -8,12 +8,12 @@ const creating = ref(false);
 const error = ref<string | null>(null);
 const licenseProblem = ref(false);
 
-async function createRoom() {
+async function createStorm() {
   creating.value = true;
   error.value = null;
   licenseProblem.value = false;
   try {
-    const data = await api<{ adminKey: string }>('create-room', { method: 'POST' });
+    const data = await api<{ adminKey: string }>('create-storm', { method: 'POST' });
     await router.push(`/presenter/${data.adminKey}`);
   } catch (err) {
     error.value = (err as Error)?.message || 'Something went wrong';
@@ -23,7 +23,7 @@ async function createRoom() {
 }
 
 const steps = [
-  { title: 'Create', text: 'Spin up a room and add multiple-choice or rating questions.' },
+  { title: 'Create', text: 'Spin up a Storm and add multiple-choice or rating questions.' },
   { title: 'Share', text: 'Audience members open one link and vote anonymously on any device.' },
   { title: 'Watch live', text: 'Advance questions and show results on a big screen as votes arrive.' },
 ];
@@ -36,8 +36,8 @@ const steps = [
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M5 20V11M12 20V4M19 20v-6" /></svg>
       </span>
       <h1>VoteStorm</h1>
-      <p class="lead">Self-hosted live polling and audience interaction. Create a room, add questions, and share one link with your audience.</p>
-      <button class="btn primary lg" :disabled="creating" @click="createRoom">{{ creating ? 'Creating…' : 'Create a room' }}</button>
+      <p class="lead">Self-hosted live polling and audience interaction. Create a Storm, add questions, and share one link with your audience.</p>
+      <button class="btn primary lg" :disabled="creating" @click="createStorm">{{ creating ? 'Creating…' : 'Create a Storm' }}</button>
       <p v-if="error" class="alert error landing-error">
         {{ error }}
         <RouterLink v-if="licenseProblem" to="/license">Manage license</RouterLink>
