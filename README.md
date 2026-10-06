@@ -13,7 +13,7 @@ VoteStorm is designed to give organizations and individuals control over their o
 - **Presenter** creates a Storm, adds questions, and runs the session from one page. Edit mode is for setup; Present mode keeps only what you need while presenting.
 - **Audience** joins from any device with one link or QR code. Votes are anonymous, and people can change their answer while a question is live.
 - **Question types:** single choice, multiple answers, and rating scales. A question can have a correct answer that is revealed on demand.
-- **Live results** on a big-screen page: a bar chart or a donut chart, both updating as votes arrive, a join screen with a live connected count, and the option to hide results until everyone has answered.
+- **Live results** on a big-screen page: a bar chart or a donut chart, both updating as votes arrive, a join screen with a live connected count, a background colour you can match to your slides, and the option to hide results until everyone has answered.
 - **Slides:** each question has its own results link that can be embedded in a slide deck. Opening it makes that question live (a closed Storm is never reopened).
 - **Closed Storms** show every question with its final results as a swipeable view.
 

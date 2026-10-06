@@ -65,13 +65,18 @@ describe('results key', () => {
     await db.execute({ sql: 'UPDATE storms SET results_key_hash = NULL', args: [] });
     expect((await resolve(resultsKey)).statusCode).toBe(404);
     await adminStorm({ httpMethod: 'GET', queryStringParameters: { adminKey } });
-    expect(JSON.parse((await resolve(resultsKey)).body)).toEqual({ stormCode });
+    expect(JSON.parse((await resolve(resultsKey)).body)).toEqual({ stormCode, resultsBackground: null });
   });
 
   it('resolves a results key to its storm and rejects a plain storm code', async () => {
-    expect(JSON.parse((await resolve(resultsKey)).body)).toEqual({ stormCode });
+    expect(JSON.parse((await resolve(resultsKey)).body)).toEqual({ stormCode, resultsBackground: null });
     expect((await resolve(stormCode)).statusCode).toBe(404);
     expect((await resolve('nonsense')).statusCode).toBe(404);
+  });
+
+  it('passes the presenter\'s results background colour along, so pinned links open in it', async () => {
+    await adminStorm({ httpMethod: 'PATCH', body: JSON.stringify({ adminKey, resultsBackground: '#102030' }) });
+    expect(JSON.parse((await resolve(resultsKey)).body)).toEqual({ stormCode, resultsBackground: '#102030' });
   });
 
   it('makes a question live from the results key and publishes the state', async () => {

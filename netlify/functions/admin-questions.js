@@ -1,4 +1,4 @@
-import { createDb, initSchema, getStormByAdminKeyHash, touchStormActivity, connectVisible } from '../../lib/db.js';
+import { createDb, initSchema, getStormByAdminKeyHash, touchStormActivity, connectVisible, resultsBackground } from '../../lib/db.js';
 import { hashAdminKey } from '../../lib/stormCode.js';
 import { computeTally } from '../../lib/tally.js';
 import { publishEvent } from '../../lib/realtime.js';
@@ -147,6 +147,7 @@ export async function handler(event) {
         currentQuestion: current,
         initialTally: currentTally,
         showConnect: connectVisible(storm),
+        resultsBackground: resultsBackground(storm),
       });
       if (clearing) {
         await publishEvent(storm.storm_code, 'tally', { questionId, ...updatedTally });

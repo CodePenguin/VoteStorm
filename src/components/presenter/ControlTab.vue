@@ -1,9 +1,29 @@
 <script setup lang="ts">
+import { computed, ref } from 'vue';
 import type { PresenterStore } from '@/composables/usePresenter';
+import { parseHexColor } from '@/lib/color';
 import LicenseLimitsList from '@/components/LicenseLimitsList.vue';
 
-defineProps<{ store: PresenterStore }>();
+const props = defineProps<{ store: PresenterStore }>();
 const emit = defineEmits<{ deleted: [] }>();
+
+const DEFAULT_SWATCH = '#0b1120';
+const background = computed(() => props.store.resultsBackground.value);
+const typed = ref<string | null>(null);
+const hexText = computed(() => typed.value ?? background.value ?? '');
+const hexInvalid = computed(() => typed.value !== null && typed.value.trim() !== '' && !parseHexColor(typed.value));
+
+function saveColor(value: string) {
+  const color = parseHexColor(value);
+  if (!color) return;
+  typed.value = null;
+  if (color !== background.value) void props.store.setResultsBackground(color);
+}
+
+function resetColor() {
+  typed.value = null;
+  void props.store.setResultsBackground(null);
+}
 </script>
 
 <template>
@@ -15,6 +35,19 @@ const emit = defineEmits<{ deleted: [] }>();
           {{ store.showConnect.value ? 'Hide join screen' : 'Show join screen' }}
         </button>
       </div>
+      <div class="bg-row">
+        <label for="results-bg">Background colour</label>
+        <input id="results-bg" class="bg-swatch" type="color" :value="background ?? DEFAULT_SWATCH" @change="saveColor(($event.target as HTMLInputElement).value)" />
+        <input
+          class="input bg-hex" type="text" inputmode="text" maxlength="7" placeholder="#1e293b" aria-label="Background colour as hex" :aria-invalid="hexInvalid"
+          :value="hexText" @input="typed = ($event.target as HTMLInputElement).value" @change="saveColor(($event.target as HTMLInputElement).value)" @keydown.enter="saveColor(($event.target as HTMLInputElement).value)"
+        />
+        <button class="btn" :disabled="!background" @click="resetColor">Reset</button>
+      </div>
+      <p v-if="hexInvalid" class="muted bg-hint">Use a six-digit hex colour such as #1e293b.</p>
+      <p class="muted" style="font-size: .82rem; margin-top: 12px">
+        Match the background colour to your slides; text and bars switch between light and dark to stay readable. It applies to the results and join screens.
+      </p>
       <p class="muted" style="font-size: .82rem; margin-top: 12px">
         The join screen puts the QR code and live connection count on the results display so latecomers can get connected. It shows automatically
         before the first question; use this to bring it back at any time.
@@ -45,3 +78,12 @@ const emit = defineEmits<{ deleted: [] }>();
     </div>
   </div>
 </template>
+
+<style>
+.bg-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 14px; }
+.bg-row label { font-weight: 600; font-size: .9rem; }
+.bg-swatch { width: 42px; height: 34px; padding: 2px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); cursor: pointer; }
+.bg-hex { width: 8.5rem; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.bg-hex[aria-invalid='true'] { border-color: var(--danger); }
+.bg-hint { font-size: .82rem; margin-top: 6px; color: var(--danger); }
+</style>

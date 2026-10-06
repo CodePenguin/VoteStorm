@@ -1,4 +1,4 @@
-import { createDb, initSchema, getStormByResultsKeyHash } from '../../lib/db.js';
+import { createDb, initSchema, getStormByResultsKeyHash, resultsBackground } from '../../lib/db.js';
 import { hashResultsKey } from '../../lib/stormCode.js';
 import { json } from '../../lib/http.js';
 
@@ -11,5 +11,5 @@ export async function handler(event) {
   await initSchema(db);
   const storm = await getStormByResultsKeyHash(db, hashResultsKey(key));
   if (!storm) return json(404, { error: 'Results not found' });
-  return json(200, { stormCode: storm.storm_code });
+  return json(200, { stormCode: storm.storm_code, resultsBackground: resultsBackground(storm) });
 }

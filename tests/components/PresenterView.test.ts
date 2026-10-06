@@ -276,6 +276,31 @@ describe('PresenterView', () => {
     ]);
   });
 
+  it('sets, validates and resets the results background colour from the Control tab', async () => {
+    const { wrapper } = await mountPresenter();
+    await wrapper.findAll('.tab')[1].trigger('click');
+    const hex = wrapper.find('.bg-hex');
+    const reset = wrapper.findAll('.bg-row .btn')[0];
+    expect(reset.attributes('disabled')).toBeDefined();
+
+    await hex.setValue('not a colour');
+    await hex.trigger('change');
+    await flushPromises();
+    expect(wrapper.find('.bg-hint').exists()).toBe(true);
+    expect(patchCalls('admin-storm')).toEqual([]);
+
+    await hex.setValue('#FF8800');
+    await hex.trigger('change');
+    await flushPromises();
+    expect(patchCalls('admin-storm')).toEqual([{ adminKey: 'ADMINKEY', resultsBackground: '#ff8800' }]);
+    expect(wrapper.find('.bg-hint').exists()).toBe(false);
+    expect((wrapper.find('.bg-swatch').element as HTMLInputElement).value).toBe('#ff8800');
+
+    await wrapper.findAll('.bg-row .btn')[0].trigger('click');
+    await flushPromises();
+    expect(patchCalls('admin-storm')[1]).toEqual({ adminKey: 'ADMINKEY', resultsBackground: null });
+  });
+
   it('shows the license in effect, with its limits, on the Control tab', async () => {
     const { wrapper } = await mountPresenter();
     await wrapper.findAll('.tab')[1].trigger('click');

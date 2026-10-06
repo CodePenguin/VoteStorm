@@ -65,6 +65,29 @@ describe('ResultsView', () => {
     channel.close.mockReset();
   });
 
+  it('uses the presenter\'s background colour from the start, and follows live changes and resets', async () => {
+    const wrapper = await mountResults('/results/KEY', {
+      'resolve-results-key': { stormCode: 'STORM01', resultsBackground: '#1e293b' },
+      'get-storm-state': { status: 'active', currentQuestion: q, tally: { counts: [3, 1], totalVotes: 4 }, showConnect: false },
+    });
+    const page = () => wrapper.find('.results-page').attributes('style') ?? '';
+    expect(page()).toContain('--bg: #1e293b');
+    expect(page()).toContain('--text: #f8fafc'); // dark background, light text
+
+    channel.handlers.state({ status: 'active', currentQuestion: q, initialTally: { counts: [3, 1], totalVotes: 4 }, showConnect: false, resultsBackground: '#ffffff' });
+    await flushPromises();
+    expect(page()).toContain('--bg: #ffffff');
+    expect(page()).toContain('--text: #0f172a');
+
+    // A state event that does not mention the colour leaves it alone; null returns to the default theme.
+    channel.handlers.state({ status: 'active', currentQuestion: q, initialTally: { counts: [3, 1], totalVotes: 4 }, showConnect: false });
+    await flushPromises();
+    expect(page()).toContain('--bg: #ffffff');
+    channel.handlers.state({ status: 'active', currentQuestion: q, initialTally: { counts: [3, 1], totalVotes: 4 }, showConnect: false, resultsBackground: null });
+    await flushPromises();
+    expect(page()).not.toContain('--bg');
+  });
+
   it('shows the live question with projector bars and the response count', async () => {
     const wrapper = await mountResults('/results/KEY', {
       ...resolved,

@@ -225,6 +225,43 @@ describe('admin-storm function', () => {
     expect(JSON.parse(res.body).showConnect).toBe(false);
   });
 
+  describe('results background colour', () => {
+    const patch = (body) => handler({ httpMethod: 'PATCH', body: JSON.stringify({ adminKey, ...body }) });
+    const detail = async () => JSON.parse((await handler({ httpMethod: 'GET', queryStringParameters: { adminKey } })).body);
+
+    it('starts with no colour (the default theme)', async () => {
+      expect((await detail()).resultsBackground).toBeNull();
+    });
+
+    it('stores a colour, normalised to lowercase #rrggbb, and publishes it live in a state event', async () => {
+      const res = await patch({ resultsBackground: '1E293B' });
+      expect(res.statusCode).toBe(200);
+      expect((await detail()).resultsBackground).toBe('#1e293b');
+      expect(publishEvent).toHaveBeenCalledWith(stormCode, 'state', expect.objectContaining({ resultsBackground: '#1e293b' }));
+    });
+
+    it('keeps the colour in later state events, and clears it with null', async () => {
+      await patch({ resultsBackground: '#ffcc00' });
+      vi.clearAllMocks();
+      await patch({ status: 'active', currentQuestionId: questionId });
+      expect(publishEvent.mock.calls[0][2].resultsBackground).toBe('#ffcc00');
+
+      vi.clearAllMocks();
+      await patch({ resultsBackground: null });
+      expect(publishEvent.mock.calls[0][2].resultsBackground).toBeNull();
+      expect((await detail()).resultsBackground).toBeNull();
+    });
+
+    it('refuses anything that is not a hex colour, and stores nothing', async () => {
+      for (const bad of ['red', 'url(javascript:alert(1))', '#12345', '#gggggg', 42, {}, '</style><script>']) {
+        const res = await patch({ resultsBackground: bad });
+        expect(res.statusCode).toBe(400);
+      }
+      expect((await detail()).resultsBackground).toBeNull();
+      expect(publishEvent).not.toHaveBeenCalled();
+    });
+  });
+
   it('hides results and only reveals the correct answer when the presenter says so', async () => {
     const created = await questionsHandler({
       httpMethod: 'POST',

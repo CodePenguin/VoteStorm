@@ -1,4 +1,5 @@
-import { createDb, initSchema, getStormByAdminKeyHash, touchStormActivity, deleteStormCascade, deleteVotesForStorm, connectVisible } from '../../lib/db.js';
+import { createDb, initSchema, getStormByAdminKeyHash, touchStormActivity, deleteStormCascade, deleteVotesForStorm, connectVisible, resultsBackground } from '../../lib/db.js';
+import { normalizeHexColor } from '../../lib/color.js';
 import { hashAdminKey, deriveResultsKey, hashResultsKey } from '../../lib/stormCode.js';
 import { applyPresentedLicense, describeLicense } from '../../lib/license.js';
 import { computeTally } from '../../lib/tally.js';
@@ -40,7 +41,7 @@ export async function handler(event) {
     if (storm.results_key_hash !== resultsKeyHash) {
       await db.execute({ sql: 'UPDATE storms SET results_key_hash = ? WHERE storm_code = ?', args: [resultsKeyHash, storm.storm_code] });
     }
-    return json(200, { storm, questions, showConnect: connectVisible(storm), resultsKey, license: describeLicense(license) });
+    return json(200, { storm, questions, showConnect: connectVisible(storm), resultsBackground: resultsBackground(storm), resultsKey, license: describeLicense(license) });
   }
 
   if (event.httpMethod === 'PATCH') {
@@ -73,6 +74,14 @@ export async function handler(event) {
       }
     }
 
+    // A colour is `#rrggbb` or null/'' (back to the default theme); anything else is refused before anything is written.
+    let newBackground;
+    if (bodyData.resultsBackground !== undefined) {
+      const wanted = bodyData.resultsBackground;
+      newBackground = wanted === null || wanted === '' ? null : normalizeHexColor(wanted);
+      if (newBackground === undefined) return json(400, { error: 'resultsBackground must be a colour like #1e293b' });
+    }
+
     const flagTargetId = bodyData.questionId ?? storm.current_question_id;
     if ((bodyData.resultsHidden !== undefined || bodyData.answerShown !== undefined) && flagTargetId) {
       const sets = [];
@@ -99,12 +108,16 @@ export async function handler(event) {
     } else if (bodyData.currentQuestionId !== undefined || bodyData.status !== undefined) {
       fields.push('show_connect = NULL');
     }
+    if (newBackground !== undefined) {
+      fields.push('results_background = ?');
+      args.push(newBackground);
+    }
     if (fields.length > 0) {
       args.push(storm.storm_code);
       await db.execute({ sql: `UPDATE storms SET ${fields.join(', ')} WHERE storm_code = ?`, args });
     }
 
-    if (bodyData.currentQuestionId !== undefined || bodyData.status !== undefined || bodyData.showConnect !== undefined || bodyData.resultsHidden !== undefined || bodyData.answerShown !== undefined) {
+    if (bodyData.currentQuestionId !== undefined || bodyData.status !== undefined || bodyData.showConnect !== undefined || newBackground !== undefined || bodyData.resultsHidden !== undefined || bodyData.answerShown !== undefined) {
       // When only `status` changes (e.g. closing the storm), currentQuestionId
       // wasn't provided in the body, so re-derive it from the storm's existing
       // current_question_id so clients still get a complete picture.
@@ -136,6 +149,7 @@ export async function handler(event) {
         showConnect: bodyData.showConnect !== undefined
           ? !!bodyData.showConnect
           : connectVisible({ show_connect: null }, bodyData.status ?? storm.status, effectiveQuestionId),
+        resultsBackground: newBackground !== undefined ? newBackground : resultsBackground(storm),
       });
     }
 

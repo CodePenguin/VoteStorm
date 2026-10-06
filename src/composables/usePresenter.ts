@@ -15,6 +15,7 @@ export function usePresenter(adminKey: Ref<string>, options: PresenterOptions = 
   const storm = ref<AdminStorm | null>(null);
   const questions = ref<AdminQuestion[]>([]);
   const showConnect = ref(false);
+  const resultsBackground = ref<string | null>(null);
   const resultsKey = ref<string | null>(null);
   const license = ref<LicenseSummary | null>(null);
   const error = ref<string | null>(null);
@@ -31,6 +32,7 @@ export function usePresenter(adminKey: Ref<string>, options: PresenterOptions = 
     storm.value = data.storm;
     questions.value = data.questions;
     showConnect.value = !!data.showConnect;
+    resultsBackground.value = data.resultsBackground ?? null;
     resultsKey.value = data.resultsKey;
     license.value = data.license ?? null;
   }
@@ -119,6 +121,10 @@ export function usePresenter(adminKey: Ref<string>, options: PresenterOptions = 
     if (await act(() => patchStorm({ showConnect: show }), false)) showConnect.value = show;
   }
 
+  async function setResultsBackground(color: string | null) {
+    if (await act(() => patchStorm({ resultsBackground: color }), false)) resultsBackground.value = color;
+  }
+
   const questionLink = (q: AdminQuestion) => `${window.location.origin}/results/${resultsKey.value}?q=${q.id}`;
 
   async function copyQuestionLink(q: AdminQuestion) {
@@ -135,9 +141,9 @@ export function usePresenter(adminKey: Ref<string>, options: PresenterOptions = 
   }
 
   return {
-    storm, questions, showConnect, resultsKey, license, error, copiedQuestion,
+    storm, questions, showConnect, resultsBackground, resultsKey, license, error, copiedQuestion,
     currentQ, currentIndex,
-    load, safeLoad, onTally, canStep, stepQuestion, activate, swap, saveQuestion, deleteStorm, setConnect, copyQuestionLink, questionLink,
+    load, safeLoad, onTally, canStep, stepQuestion, activate, swap, saveQuestion, deleteStorm, setConnect, setResultsBackground, copyQuestionLink, questionLink,
     setQuestionFlag: (flags: Record<string, unknown>) => act(() => patchStorm(flags)),
     resetQuestion: (questionId: number) => act(() => patchQuestion({ questionId, action: 'reset' })),
     resetStorm: () => act(() => patchStorm({ action: 'reset' })),

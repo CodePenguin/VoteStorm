@@ -1,4 +1,4 @@
-import { createDb, initSchema, getStormByResultsKeyHash, touchStormActivity, connectVisible } from '../../lib/db.js';
+import { createDb, initSchema, getStormByResultsKeyHash, touchStormActivity, connectVisible, resultsBackground } from '../../lib/db.js';
 import { hashResultsKey } from '../../lib/stormCode.js';
 import { computeTally } from '../../lib/tally.js';
 import { shapeQuestion, publicTally } from '../../lib/question.js';
@@ -48,6 +48,7 @@ export async function handler(event) {
     currentQuestion: shapeQuestion(question),
     initialTally: publicTally(question, computeTally(question, votes)),
     showConnect: connectVisible({ show_connect: null }, 'active', question.id),
+    resultsBackground: resultsBackground(storm),
   });
   return json(200, { ok: true, changed: true });
 }

@@ -5,6 +5,7 @@ import type * as Ably from 'ably';
 import { api, ApiError } from '@/api';
 import { subscribeStorm } from '@/composables/useStormChannel';
 import { normalizeTally, responsesLabel } from '@/lib/tally';
+import { resultsTheme } from '@/lib/color';
 import type { ClosedQuestion, Question, StormState, Tally } from '@/shared/types';
 import QrCode from '@/components/QrCode.vue';
 import BrandMark from '@/components/BrandMark.vue';
@@ -25,6 +26,8 @@ const tally = ref<Tally>(normalizeTally(null));
 const slides = ref<ClosedQuestion[] | null>(null);
 const stormClosed = ref(false);
 const showConnect = ref(false);
+const background = ref<string | null>(null);
+const theme = computed(() => resultsTheme(background.value));
 const connected = ref(false);
 const connectedCount = ref(0);
 const loadError = ref<string | null>(null);
@@ -68,7 +71,8 @@ async function loadLocked() {
   showConnect.value = false;
 }
 
-function onState(data: { status: string; currentQuestion: Question | null; initialTally: Tally | null; showConnect: boolean }) {
+function onState(data: { status: string; currentQuestion: Question | null; initialTally: Tally | null; showConnect: boolean; resultsBackground?: string | null }) {
+  if (data.resultsBackground !== undefined) background.value = data.resultsBackground;
   if (lockedId.value) {
     loadLocked().catch(failWith);
     return;
@@ -87,8 +91,9 @@ onMounted(async () => {
     return;
   }
   try {
-    const resolved = await api<{ stormCode: string }>(`resolve-results-key?key=${encodeURIComponent(resultsKey.value)}`);
+    const resolved = await api<{ stormCode: string; resultsBackground: string | null }>(`resolve-results-key?key=${encodeURIComponent(resultsKey.value)}`);
     stormCode.value = resolved.stormCode;
+    background.value = resolved.resultsBackground ?? null;
   } catch (err) {
     loading.value = false;
     loadError.value = err instanceof ApiError && err.status === 404 ? 'Results not found.' : (err as Error)?.message || 'Something went wrong';
@@ -132,7 +137,7 @@ onBeforeUnmount(() => ably?.close());
 </script>
 
 <template>
-  <div class="results-page">
+  <div class="results-page" :style="theme">
     <div class="topbar">
       <span class="brand">
         <BrandMark />
@@ -190,7 +195,7 @@ onBeforeUnmount(() => ably?.close());
 </template>
 
 <style>
-.results-page { flex: 1; display: flex; flex-direction: column; min-height: 100vh; min-height: 100dvh; }
+.results-page { flex: 1; display: flex; flex-direction: column; min-height: 100vh; min-height: 100dvh; background: var(--bg); color: var(--text); }
 .results-page .topbar { display: flex; align-items: center; justify-content: space-between; padding: clamp(10px, 2.4vh, 20px) 40px; }
 .results-main { flex: 1; display: flex; flex-direction: column; justify-content: center; width: 100%; max-width: 1400px; margin: 0 auto; padding: 0 48px clamp(8px, 2vh, 32px); }
 .results-page .prompt { font-size: clamp(1.6rem, min(4.5vw, 7vh), 4rem); font-weight: 800; margin-bottom: clamp(14px, 3.6vh, 44px); }
