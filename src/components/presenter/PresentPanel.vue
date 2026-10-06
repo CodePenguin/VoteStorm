@@ -42,7 +42,7 @@ const total = computed(() => q.value?.tally.totalVotes || 0);
 
     <div class="present-nav">
       <button class="btn lg" :disabled="!store.canStep(-1)" @click="store.stepQuestion(-1)">&lsaquo; Previous</button>
-      <button class="btn primary lg" :disabled="!store.canStep(1)" @click="store.stepQuestion(1)">Next question &rsaquo;</button>
+      <button class="btn primary lg" :disabled="!store.canStep(1)" @click="store.stepQuestion(1)">Next &rsaquo;</button>
     </div>
 
     <div v-if="store.questions.value.length" class="card">

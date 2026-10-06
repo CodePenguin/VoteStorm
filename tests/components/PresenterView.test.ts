@@ -110,7 +110,7 @@ describe('PresenterView', () => {
     const now = wrapper.find('.present-now');
     expect(now.text()).toContain('Question 1');
     expect(now.findAll('.sbar')).toHaveLength(2);
-    expect(wrapper.find('.present-nav .btn.primary').text()).toContain('Next question');
+    expect(wrapper.find('.present-nav .btn.primary').text()).toContain('Next');
     await wrapper.find('.present-nav .btn.primary').trigger('click');
     await flushPromises();
     expect(patchCalls('admin-storm')).toContainEqual({ adminKey: 'ADMINKEY', status: 'active', currentQuestionId: 2 });

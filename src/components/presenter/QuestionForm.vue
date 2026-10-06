@@ -48,7 +48,7 @@ function submit() {
         <label class="field">
           <span>Live results display</span>
           <select v-model="form.display" class="input">
-            <option value="bars">Animated bars</option>
+            <option value="bars">Bar chart</option>
             <option value="donut">Donut chart</option>
           </select>
         </label>
