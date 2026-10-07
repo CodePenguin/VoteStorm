@@ -4,6 +4,7 @@ import { flushPromises, mount } from '@vue/test-utils';
 import { createMemoryHistory, createRouter } from 'vue-router';
 import { routes } from '@/router';
 import type { AdminQuestion, AdminStormData } from '@/shared/types';
+import { loadRecent, rememberStorm } from '@/lib/recentStorms';
 
 const { FakeApiError } = vi.hoisted(() => ({
   FakeApiError: class FakeApiError extends Error {
@@ -15,19 +16,19 @@ const { FakeApiError } = vi.hoisted(() => ({
   },
 }));
 
-const calls: { path: string; body: any; method?: string }[] = [];
+const calls: { path: string; body: any; method?: string; key?: string }[] = [];
 let data: AdminStormData;
 let failNext: Error | null = null;
 
 const apiMock = vi.fn(async (path: string, options: RequestInit = {}) => {
   const body = options.body ? JSON.parse(options.body as string) : undefined;
-  calls.push({ path, body, method: options.method });
+  calls.push({ path, body, method: options.method, key: (options.headers as Record<string, string> | undefined)?.['x-admin-key'] });
   if (failNext && options.method === 'PATCH') {
     const err = failNext;
     failNext = null;
     throw err;
   }
-  if (path.startsWith('admin-storm?')) return JSON.parse(JSON.stringify(data));
+  if (path === 'admin-storm' && !options.method) return JSON.parse(JSON.stringify(data));
   if (path === 'admin-storm' && options.method === 'PATCH' && body.currentQuestionId) {
     data.storm.current_question_id = body.currentQuestionId;
     data.storm.status = 'active';
@@ -60,7 +61,7 @@ const question = (id: number, over: Partial<AdminQuestion> = {}): AdminQuestion 
   tally: { counts: [2, 1], totalVotes: 3 }, ...over,
 });
 
-async function mountPresenter(url = '/presenter/ADMINKEY') {
+async function mountPresenter(url = '/presenter#key=ADMINKEY') {
   const router = createRouter({ history: createMemoryHistory(), routes });
   router.push(url);
   await router.isReady();
@@ -114,7 +115,7 @@ describe('PresenterView', () => {
     expect(wrapper.find('.present-nav .btn.primary').text()).toContain('Next');
     await wrapper.find('.present-nav .btn.primary').trigger('click');
     await flushPromises();
-    expect(patchCalls('admin-storm')).toContainEqual({ adminKey: 'ADMINKEY', status: 'active', currentQuestionId: 2 });
+    expect(patchCalls('admin-storm')).toContainEqual({ status: 'active', currentQuestionId: 2 });
     expect(wrapper.find('.present-now').text()).toContain('Question 2');
     expect(wrapper.findAll('.present-row')[1].classes()).toContain('live');
   });
@@ -134,7 +135,7 @@ describe('PresenterView', () => {
     const toggle = wrapper.findAll('.present-now .toolbar .btn').find((b) => b.text() === 'Show results')!;
     await toggle.trigger('click');
     await flushPromises();
-    expect(patchCalls('admin-storm')).toContainEqual({ adminKey: 'ADMINKEY', questionId: 2, resultsHidden: false });
+    expect(patchCalls('admin-storm')).toContainEqual({ questionId: 2, resultsHidden: false });
   });
 
   it('keeps the live controls above the results so they stay on screen with a long scale', async () => {
@@ -150,7 +151,7 @@ describe('PresenterView', () => {
     const { wrapper } = await mountPresenter();
     await wrapper.findAll('.seg button')[1].trigger('click');
     await wrapper.findAll('.present-now .toolbar .btn').find((b) => b.text() === 'Reveal answer')!.trigger('click');
-    expect(patchCalls('admin-storm')).toContainEqual({ adminKey: 'ADMINKEY', questionId: 1, answerShown: true });
+    expect(patchCalls('admin-storm')).toContainEqual({ questionId: 1, answerShown: true });
   });
 
   it('activates a question from its Edit card', async () => {
@@ -158,14 +159,14 @@ describe('PresenterView', () => {
     const card = wrapper.findAll('.question')[1];
     await card.findAll('.btn').find((b) => b.text() === 'Activate')!.trigger('click');
     await flushPromises();
-    expect(patchCalls('admin-storm')).toContainEqual({ adminKey: 'ADMINKEY', status: 'active', currentQuestionId: 2 });
+    expect(patchCalls('admin-storm')).toContainEqual({ status: 'active', currentQuestionId: 2 });
   });
 
   it('copies a results link built from the results key, not the storm code', async () => {
     const { wrapper } = await mountPresenter();
     await wrapper.findAll('.question')[1].findAll('.btn').find((b) => b.text() === 'Copy results link')!.trigger('click');
     await flushPromises();
-    expect(copied).toEqual([`${window.location.origin}/results/RESKEY?q=2`]);
+    expect(copied).toEqual([`${window.location.origin}/results#key=RESKEY&q=2`]);
   });
 
   it('adds a question, mapping the typed correct answer to its index', async () => {
@@ -178,7 +179,7 @@ describe('PresenterView', () => {
     await btn(wrapper, 'Save question').trigger('click');
     await flushPromises();
     const post = calls.find((c) => c.path === 'admin-questions' && c.method === 'POST')!;
-    expect(post.body).toMatchObject({ adminKey: 'ADMINKEY', type: 'choice', prompt: 'Best pet?', options: ['Cat', 'Dog'], correct: [1], multi: false, display: 'bars', resultsHidden: false });
+    expect(post.body).toMatchObject({ type: 'choice', prompt: 'Best pet?', options: ['Cat', 'Dog'], correct: [1], multi: false, display: 'bars', resultsHidden: false });
     expect(wrapper.text()).not.toContain('New question');
   });
 
@@ -238,8 +239,8 @@ describe('PresenterView', () => {
     await wrapper.findAll('.question')[0].findAll('.btn').find((b) => b.text().includes('Down'))!.trigger('click');
     await flushPromises();
     expect(patchCalls('admin-questions')).toEqual([
-      { adminKey: 'ADMINKEY', questionId: 1, orderIndex: 2 },
-      { adminKey: 'ADMINKEY', questionId: 2, orderIndex: 1 },
+      { questionId: 1, orderIndex: 2 },
+      { questionId: 2, orderIndex: 1 },
     ]);
   });
 
@@ -248,7 +249,7 @@ describe('PresenterView', () => {
     expect(wrapper.findAll('.tab').map((t) => t.text())).toEqual(['Questions (2)', 'Control']);
     expect(wrapper.find('.share-url').exists()).toBe(false);
     await wrapper.find('.app-header .icon-btn').trigger('click');
-    expect(wrapper.findAll('.share-url').map((a) => a.text())).toEqual([`${window.location.origin}/vote/STORM01`, `${window.location.origin}/results/RESKEY`]);
+    expect(wrapper.findAll('.share-url').map((a) => a.text())).toEqual([`${window.location.origin}/vote/STORM01`, `${window.location.origin}/results#key=RESKEY`]);
     expect(wrapper.findAll('.share-card .qr-box')).toHaveLength(2);
     await wrapper.findAll('.modal .btn').find((b) => b.text() === 'Close')!.trigger('click');
     expect(wrapper.find('.share-url').exists()).toBe(false);
@@ -272,8 +273,8 @@ describe('PresenterView', () => {
     await wrapper.findAll('.toolbar .btn').find((b) => b.text() === 'End Storm')!.trigger('click');
     await flushPromises();
     expect(patchCalls('admin-storm')).toEqual([
-      { adminKey: 'ADMINKEY', showConnect: true },
-      { adminKey: 'ADMINKEY', status: 'closed' },
+      { showConnect: true },
+      { status: 'closed' },
     ]);
   });
 
@@ -293,13 +294,13 @@ describe('PresenterView', () => {
     await hex.setValue('#FF8800');
     await hex.trigger('change');
     await flushPromises();
-    expect(patchCalls('admin-storm')).toEqual([{ adminKey: 'ADMINKEY', resultsBackground: '#ff8800' }]);
+    expect(patchCalls('admin-storm')).toEqual([{ resultsBackground: '#ff8800' }]);
     expect(wrapper.find('.bg-hint').exists()).toBe(false);
     expect((wrapper.find('.bg-swatch').element as HTMLInputElement).value).toBe('#ff8800');
 
     await wrapper.findAll('.bg-row .btn')[0].trigger('click');
     await flushPromises();
-    expect(patchCalls('admin-storm')[1]).toEqual({ adminKey: 'ADMINKEY', resultsBackground: null });
+    expect(patchCalls('admin-storm')[1]).toEqual({ resultsBackground: null });
   });
 
   describe('locking voting and the timer', () => {
@@ -321,9 +322,9 @@ describe('PresenterView', () => {
       await btn(wrapper, '2m').trigger('click');
       await flushPromises();
       expect(patchCalls('admin-storm')).toEqual([
-        { adminKey: 'ADMINKEY', questionId: 1, votingLocked: true },
-        { adminKey: 'ADMINKEY', questionId: 1, votingSeconds: 30 },
-        { adminKey: 'ADMINKEY', questionId: 1, votingSeconds: 120 },
+        { questionId: 1, votingLocked: true },
+        { questionId: 1, votingSeconds: 30 },
+        { questionId: 1, votingSeconds: 120 },
       ]);
     });
 
@@ -338,9 +339,9 @@ describe('PresenterView', () => {
       await btn(wrapper, 'Lock now').trigger('click');
       await flushPromises();
       expect(patchCalls('admin-storm')).toEqual([
-        { adminKey: 'ADMINKEY', questionId: 1, votingAddSeconds: 30 },
-        { adminKey: 'ADMINKEY', questionId: 1, votingLocked: false },
-        { adminKey: 'ADMINKEY', questionId: 1, votingLocked: true },
+        { questionId: 1, votingAddSeconds: 30 },
+        { questionId: 1, votingLocked: false },
+        { questionId: 1, votingLocked: true },
       ]);
       wrapper.unmount();
     });
@@ -352,7 +353,7 @@ describe('PresenterView', () => {
       expect(rowButtons(wrapper)[0]).toBe('Unlock voting');
       await btn(wrapper, 'Unlock voting').trigger('click');
       await flushPromises();
-      expect(patchCalls('admin-storm')).toEqual([{ adminKey: 'ADMINKEY', questionId: 1, votingLocked: false }]);
+      expect(patchCalls('admin-storm')).toEqual([{ questionId: 1, votingLocked: false }]);
     });
   });
 
@@ -363,9 +364,10 @@ describe('PresenterView', () => {
     await flushPromises();
     const call = calls.find((c) => c.path === 'duplicate-storm')!;
     expect(call.method).toBe('POST');
-    expect(call.body).toEqual({ adminKey: 'ADMINKEY' });
-    expect(router.currentRoute.value.fullPath).toContain('/presenter/COPYKEY');
-    expect(calls.some((c) => c.path === 'admin-storm?adminKey=COPYKEY')).toBe(true);
+    expect(call.body).toEqual({});
+    expect(call.key).toBe('ADMINKEY');
+    expect(router.currentRoute.value.fullPath).toBe('/presenter#key=COPYKEY&tab=questions');
+    expect(calls.some((c) => c.path === 'admin-storm' && !c.method && c.key === 'COPYKEY')).toBe(true);
     expect(wrapper.find('.tab.on').text()).toContain('Questions');
   });
 
@@ -379,7 +381,74 @@ describe('PresenterView', () => {
     await btn(wrapper, 'Duplicate Storm').trigger('click');
     await flushPromises();
     expect(wrapper.find('.alert.error').text()).toContain('Your license allows 1 active Storm');
-    expect(router.currentRoute.value.fullPath).toContain('/presenter/ADMINKEY');
+    expect(router.currentRoute.value.fullPath).toContain('/presenter#key=ADMINKEY');
+  });
+
+  describe('the admin key', () => {
+    it('is sent in a header on every call, and never appears in a URL or a body', async () => {
+      const { wrapper } = await mountPresenter();
+      await wrapper.findAll('.tab')[1].trigger('click');
+      await btn(wrapper, 'Show join screen').trigger('click');
+      await btn(wrapper, 'Duplicate Storm').trigger('click');
+      await btn(wrapper, 'Delete Storm').trigger('click');
+      await flushPromises();
+      expect(calls.length).toBeGreaterThan(3);
+      for (const call of calls) {
+        expect(call.path).not.toContain('ADMINKEY');
+        expect(JSON.stringify(call.body ?? {})).not.toContain('ADMINKEY');
+      }
+      expect(calls.filter((c) => c.path !== 'create-storm').every((c) => c.key === 'ADMINKEY')).toBe(true);
+    });
+
+    it('is read from the fragment, and the open tab is kept there too', async () => {
+      const { wrapper, router } = await mountPresenter('/presenter#key=ADMINKEY&tab=storm');
+      expect(wrapper.find('.tab.on').text()).toContain('Control');
+      await wrapper.findAll('.tab')[0].trigger('click');
+      await flushPromises();
+      expect(router.currentRoute.value.hash).toBe('#key=ADMINKEY&tab=questions');
+    });
+
+    it('is remembered on this device once its Storm loads, with the Storm name', async () => {
+      data.storm.name = 'Town hall';
+      await mountPresenter();
+      expect(loadRecent()).toEqual([{ adminKey: 'ADMINKEY', stormCode: 'STORM01', name: 'Town hall', lastOpenedAt: expect.any(Number) }]);
+    });
+
+    it('is forgotten when the server says the Storm is gone', async () => {
+      rememberStorm({ adminKey: 'ADMINKEY', stormCode: 'STORM01' });
+      failNext = null;
+      apiMock.mockImplementationOnce(async () => {
+        throw new FakeApiError('Invalid admin key', 401);
+      });
+      const { wrapper } = await mountPresenter();
+      expect(wrapper.find('.alert.error').text()).toContain('Invalid admin key');
+      expect(loadRecent()).toEqual([]);
+    });
+  });
+
+  describe('Storm name', () => {
+    it('saves a name typed on the Control tab, and shows it in the recent list', async () => {
+      const { wrapper } = await mountPresenter();
+      await wrapper.findAll('.tab')[1].trigger('click');
+      const input = wrapper.find('#storm-name');
+      expect((input.element as HTMLInputElement).value).toBe('');
+      await input.setValue('  Quarterly review  ');
+      await input.trigger('change');
+      await flushPromises();
+      expect(patchCalls('admin-storm')).toEqual([{ name: 'Quarterly review' }]);
+      expect(loadRecent()[0].name).toBe('Quarterly review');
+      expect((wrapper.find('#storm-name').element as HTMLInputElement).value).toBe('Quarterly review');
+    });
+
+    it('does not send anything when the name has not changed', async () => {
+      data.storm.name = 'Same';
+      const { wrapper } = await mountPresenter();
+      await wrapper.findAll('.tab')[1].trigger('click');
+      await wrapper.find('#storm-name').setValue('Same ');
+      await wrapper.find('#storm-name').trigger('change');
+      await flushPromises();
+      expect(patchCalls('admin-storm')).toEqual([]);
+    });
   });
 
   it('shows the license in effect, with its limits, on the Control tab', async () => {
@@ -408,10 +477,10 @@ describe('PresenterView', () => {
     await flushPromises();
     await wrapper.findAll('.seg button')[1].trigger('click');
     expect(wrapper.find('.present-count').text()).toBe('5');
-    const before = calls.filter((c) => c.path.startsWith('admin-storm?')).length;
+    const before = calls.filter((c) => c.path === 'admin-storm' && !c.method).length;
     channel.handlers.tally({ questionId: 1, totalVotes: 6, hidden: true });
     await flushPromises();
-    expect(calls.filter((c) => c.path.startsWith('admin-storm?')).length).toBe(before + 1);
+    expect(calls.filter((c) => c.path === 'admin-storm' && !c.method).length).toBe(before + 1);
   });
 
   it('offers to create a storm when there is no admin key', async () => {
@@ -419,7 +488,7 @@ describe('PresenterView', () => {
     expect(wrapper.text()).toContain('No Storm yet');
     await wrapper.find('.btn.primary').trigger('click');
     await flushPromises();
-    expect(router.currentRoute.value.fullPath).toBe('/presenter/NEWKEY');
+    expect(router.currentRoute.value.fullPath).toBe('/presenter#key=NEWKEY');
     expect(calls.some((c) => c.path === 'create-storm')).toBe(true);
   });
 });

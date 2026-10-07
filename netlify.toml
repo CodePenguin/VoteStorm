@@ -9,11 +9,6 @@
   command = "npm run dev:app"
   targetPort = 5173
 
-[[redirects]]
-  from = "/admin/*"
-  to = "/presenter/:splat"
-  status = 301
-
 # Single-page app: any other path that is not a real file serves the Vue app.
 # Function URLs under /.netlify/functions/ are handled before redirects.
 [[redirects]]

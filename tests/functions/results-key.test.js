@@ -55,7 +55,7 @@ describe('results key', () => {
   });
 
   it('is stored (hashed) when the storm is created and returned by the presenter GET', async () => {
-    const body = JSON.parse((await adminStorm({ httpMethod: 'GET', queryStringParameters: { adminKey } })).body);
+    const body = JSON.parse((await adminStorm({ httpMethod: 'GET', headers: { 'x-admin-key': adminKey } })).body);
     expect(body.resultsKey).toBe(resultsKey);
     expect(body.storm.results_key_hash).toBe(hashResultsKey(resultsKey));
   });
@@ -64,7 +64,7 @@ describe('results key', () => {
     const db = createDb();
     await db.execute({ sql: 'UPDATE storms SET results_key_hash = NULL', args: [] });
     expect((await resolve(resultsKey)).statusCode).toBe(404);
-    await adminStorm({ httpMethod: 'GET', queryStringParameters: { adminKey } });
+    await adminStorm({ httpMethod: 'GET', headers: { 'x-admin-key': adminKey } });
     expect(JSON.parse((await resolve(resultsKey)).body)).toEqual({ stormCode, resultsBackground: null });
   });
 
@@ -86,7 +86,7 @@ describe('results key', () => {
       status: 'active',
       currentQuestion: expect.objectContaining({ id: q2, prompt: 'Two' }),
     }));
-    const body = JSON.parse((await adminStorm({ httpMethod: 'GET', queryStringParameters: { adminKey } })).body);
+    const body = JSON.parse((await adminStorm({ httpMethod: 'GET', headers: { 'x-admin-key': adminKey } })).body);
     expect(body.storm.current_question_id).toBe(q2);
   });
 
@@ -113,7 +113,7 @@ describe('results key', () => {
     const res = await go({ resultsKey, questionId: q2 });
     expect(JSON.parse(res.body)).toMatchObject({ changed: false, closed: true });
     expect(publishEvent).not.toHaveBeenCalled();
-    const body = JSON.parse((await adminStorm({ httpMethod: 'GET', queryStringParameters: { adminKey } })).body);
+    const body = JSON.parse((await adminStorm({ httpMethod: 'GET', headers: { 'x-admin-key': adminKey } })).body);
     expect(body.storm.status).toBe('closed');
     expect(body.storm.current_question_id).not.toBe(q2);
   });

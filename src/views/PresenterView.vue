@@ -2,10 +2,12 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import type * as Ably from 'ably';
-import { api } from '@/api';
+import { api, ApiError } from '@/api';
 import { subscribeStorm } from '@/composables/useStormChannel';
 import { usePresenter } from '@/composables/usePresenter';
 import { blankForm, formFromQuestion, statusLabel } from '@/lib/presenter';
+import { fragmentFor, presenterLocation, readFragment } from '@/lib/fragment';
+import { forgetStorm, rememberStorm } from '@/lib/recentStorms';
 import type { AdminQuestion, QuestionForm, QuestionPayload } from '@/shared/types';
 import BrandMark from '@/components/BrandMark.vue';
 import ControlTab from '@/components/presenter/ControlTab.vue';
@@ -19,7 +21,9 @@ const TABS: Tab[] = ['questions', 'storm'];
 
 const route = useRoute();
 const router = useRouter();
-const adminKey = computed(() => String(route.params.adminKey ?? ''));
+// The admin key and the open tab live after the `#`, which a browser never sends to a server.
+const fragment = computed(() => readFragment(route.hash));
+const adminKey = computed(() => fragment.value.get('key') ?? '');
 const store = usePresenter(adminKey);
 
 function readMode(): 'edit' | 'present' {
@@ -31,7 +35,7 @@ function readMode(): 'edit' | 'present' {
 }
 
 const mode = ref<'edit' | 'present'>(readMode());
-const hashTab = route.hash.slice(1) as Tab;
+const hashTab = readFragment(route.hash).get('tab') as Tab;
 const tab = ref<Tab>(TABS.includes(hashTab) ? hashTab : 'questions');
 const showShare = ref(false);
 const showForm = ref(false);
@@ -51,7 +55,7 @@ function setMode(next: 'edit' | 'present') {
 
 function setTab(next: Tab) {
   tab.value = next;
-  history.replaceState(null, '', '#' + next);
+  void router.replace({ path: route.path, hash: fragmentFor({ key: adminKey.value, tab: next }) });
 }
 
 function onKey(e: KeyboardEvent) {
@@ -85,7 +89,7 @@ async function save(payload: QuestionPayload) {
 async function createStorm() {
   try {
     const data = await api<{ adminKey: string }>('create-storm', { method: 'POST' });
-    await router.push(`/presenter/${data.adminKey}`);
+    await router.push(presenterLocation(data.adminKey));
     await init();
   } catch (e) {
     store.error.value = (e as Error)?.message || 'Something went wrong';
@@ -93,7 +97,7 @@ async function createStorm() {
 }
 
 async function openCopy(newKey: string) {
-  await router.push(`/presenter/${newKey}`);
+  await router.push(presenterLocation(newKey));
   setTab('questions');
   await init();
 }
@@ -103,9 +107,11 @@ async function init() {
   try {
     await store.load();
   } catch (e) {
+    if (e instanceof ApiError && e.status === 401) forgetStorm(adminKey.value);
     store.error.value = (e as Error)?.message || 'Something went wrong';
     return;
   }
+  rememberStorm({ adminKey: adminKey.value, stormCode: store.storm.value!.storm_code, name: store.storm.value!.name ?? null });
   ably?.close();
   ably = subscribeStorm(store.storm.value!.storm_code, {
     tally: (data) => store.onTally(data),
@@ -163,6 +169,7 @@ onBeforeUnmount(() => {
         <strong>No Storm yet</strong>
         <p style="margin-bottom: 16px">Create a Storm to start adding questions.</p>
         <button class="btn primary" @click="createStorm">Create a new Storm</button>
+        <p style="margin-top: 16px"><RouterLink to="/storms">Your Storms</RouterLink></p>
       </div>
 
       <div v-else-if="store.storm.value">

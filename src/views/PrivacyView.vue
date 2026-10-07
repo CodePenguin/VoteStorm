@@ -17,8 +17,9 @@
 
     <h2>When you present</h2>
     <p>
-      A Storm holds its questions and settings, and is controlled by a secret link. Whoever has that link can run the Storm, so keep it private.
-      If you add a license, it is saved in your browser.
+      A Storm holds its questions, an optional name and its settings, and is controlled by a secret link. The secret is kept after the # in the link,
+      which your browser never sends to a server, and it is stored on our side only as a one-way hash. Whoever has the link can run the Storm, so keep it
+      private. If you add a license, it is saved in your browser.
     </p>
 
     <h2>Your IP address</h2>
@@ -30,7 +31,9 @@
     <h2>Browser storage</h2>
     <p>
       VoteStorm sets no cookies. It uses your browser&rsquo;s local storage for your device ID, which questions you have answered and what you chose,
-      the presenter&rsquo;s view setting, and a license if you added one. Clearing your site data removes all of it, and you will appear as a new device.
+      the presenter&rsquo;s view setting, and a license if you added one. If you present, it also keeps the Storms you have created or opened, with their
+      private links, so you can find them again under Your Storms. That list stays in your browser and is never sent to anyone. Clearing your site data
+      removes all of it, and you will appear as a new device.
     </p>
 
     <h2>Who handles your data</h2>

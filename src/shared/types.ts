@@ -76,6 +76,10 @@ export interface AdminStorm {
   storm_code: string;
   status: StormStatus;
   current_question_id: number | null;
+  name?: string | null;
+  created_at?: number;
+  last_activity_at?: number | null;
+  inactivity_hours?: number | null;
 }
 
 export interface LicenseLimits {

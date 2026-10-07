@@ -27,7 +27,7 @@ describe('duplicate-storm function', () => {
 
   const post = (fn, body, jwt) => fn({ httpMethod: 'POST', headers: jwt ? bearer(jwt) : {}, body: JSON.stringify(body) });
   const patch = (body) => adminStorm({ httpMethod: 'PATCH', headers: {}, body: JSON.stringify(body) });
-  const detail = async (adminKey) => JSON.parse((await adminStorm({ httpMethod: 'GET', headers: {}, queryStringParameters: { adminKey } })).body);
+  const detail = async (adminKey) => JSON.parse((await adminStorm({ httpMethod: 'GET', headers: { ...{}, 'x-admin-key': adminKey } })).body);
   const row = async (stormCode) => (await createDb().execute({ sql: 'SELECT * FROM storms WHERE storm_code = ?', args: [stormCode] })).rows[0];
   const count = async (table, stormCode) =>
     Number((await createDb().execute({ sql: `SELECT COUNT(*) AS n FROM ${table} WHERE storm_code = ?`, args: [stormCode] })).rows[0].n);
@@ -90,6 +90,17 @@ describe('duplicate-storm function', () => {
     expect(a.resultsKey).not.toBe(b.resultsKey);
     expect(await count('questions', source.stormCode)).toBe(2);
     expect(await count('questions', copy.stormCode)).toBe(2);
+  });
+
+  it('takes the admin key from the x-admin-key header, and names the copy after the original', async () => {
+    await adminStorm({ httpMethod: 'PATCH', headers: { 'x-admin-key': source.adminKey }, body: JSON.stringify({ name: 'Town hall' }) });
+    const res = await duplicateStorm({ httpMethod: 'POST', headers: { 'x-admin-key': source.adminKey }, body: '{}' });
+    expect(res.statusCode).toBe(200);
+    const copy = JSON.parse(res.body);
+    expect((await row(copy.stormCode)).name).toBe('Copy of Town hall');
+    expect((await row(source.stormCode)).name).toBe('Town hall');
+    const unnamed = JSON.parse((await post(duplicateStorm, { adminKey: (await post(createStorm, {})).body && JSON.parse((await post(createStorm, {})).body).adminKey })).body);
+    expect((await row(unnamed.stormCode)).name).toBeNull();
   });
 
   it('refuses a wrong or missing admin key', async () => {

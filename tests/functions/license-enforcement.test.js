@@ -128,7 +128,7 @@ describe('license enforcement', () => {
       const mine = await issuer.sign({ maxActiveStorms: 1 }, { sub: 'creator' });
       const { body } = await create(mine);
       const other = await issuer.sign({ stormInactivityHours: 48 }, { sub: 'someone-else' });
-      await adminStorm({ httpMethod: 'GET', headers: bearer(other), queryStringParameters: { adminKey: body.adminKey } });
+      await adminStorm({ httpMethod: 'GET', headers: { ...bearer(other), 'x-admin-key': body.adminKey } });
       expect((await create(mine)).res.statusCode).toBe(403);
     });
 
@@ -163,7 +163,7 @@ describe('license enforcement', () => {
     it('keeps the creator when someone else later presents their license on the storm', async () => {
       const { body } = await create(await issuer.sign({ name: 'Creator' }, { sub: 'creator-1' }));
       const other = await issuer.sign({ name: 'Other', stormInactivityHours: 96 }, { sub: 'other-2' });
-      await adminStorm({ httpMethod: 'GET', headers: bearer(other), queryStringParameters: { adminKey: body.adminKey } });
+      await adminStorm({ httpMethod: 'GET', headers: { ...bearer(other), 'x-admin-key': body.adminKey } });
       const row = await stormRow(body.stormCode);
       expect(row.license_id).toBe('other-2'); // the license the storm runs under now
       expect(row.created_by_license_id).toBe('creator-1'); // who made it
@@ -268,7 +268,7 @@ describe('license enforcement', () => {
     it('lets an anonymous storm lapse after 24 hours of inactivity, and removes it when next opened', async () => {
       const { body } = await create();
       await createDb().execute({ sql: 'UPDATE storms SET last_activity_at = ? WHERE storm_code = ?', args: [Date.now() - 25 * HOUR, body.stormCode] });
-      const res = await adminStorm({ httpMethod: 'GET', headers: {}, queryStringParameters: { adminKey: body.adminKey } });
+      const res = await adminStorm({ httpMethod: 'GET', headers: { ...{}, 'x-admin-key': body.adminKey } });
       expect(res.statusCode).toBe(401);
       expect(await stormRow(body.stormCode)).toBeUndefined();
     });
@@ -276,7 +276,7 @@ describe('license enforcement', () => {
     it('keeps a licensed storm for as long as its license allows', async () => {
       const { body } = await create(await issuer.sign({ stormInactivityHours: 168 }));
       await createDb().execute({ sql: 'UPDATE storms SET last_activity_at = ? WHERE storm_code = ?', args: [Date.now() - 100 * HOUR, body.stormCode] });
-      const res = await adminStorm({ httpMethod: 'GET', headers: {}, queryStringParameters: { adminKey: body.adminKey } });
+      const res = await adminStorm({ httpMethod: 'GET', headers: { ...{}, 'x-admin-key': body.adminKey } });
       expect(res.statusCode).toBe(200);
     });
 
@@ -300,11 +300,11 @@ describe('license enforcement', () => {
   describe('presenting a license later', () => {
     it('reports the license in effect on the presenter page', async () => {
       const { body } = await create();
-      const anon = JSON.parse((await adminStorm({ httpMethod: 'GET', headers: {}, queryStringParameters: { adminKey: body.adminKey } })).body);
+      const anon = JSON.parse((await adminStorm({ httpMethod: 'GET', headers: { ...{}, 'x-admin-key': body.adminKey } })).body);
       expect(anon.license).toMatchObject({ tier: 'anonymous', limits: { stormInactivityHours: 24 } });
 
       const jwt = await issuer.sign({ name: 'Upgrade', stormInactivityHours: 96, maxAudiencePerStorm: 10 });
-      const upgraded = JSON.parse((await adminStorm({ httpMethod: 'GET', headers: bearer(jwt), queryStringParameters: { adminKey: body.adminKey } })).body);
+      const upgraded = JSON.parse((await adminStorm({ httpMethod: 'GET', headers: { ...bearer(jwt), 'x-admin-key': body.adminKey } })).body);
       expect(upgraded.license).toMatchObject({ tier: 'licensed', name: 'Upgrade', limits: { stormInactivityHours: 96, maxAudiencePerStorm: 10 } });
       const row = await stormRow(body.stormCode);
       expect(Number(row.inactivity_hours)).toBe(96);
@@ -313,7 +313,7 @@ describe('license enforcement', () => {
 
     it('ignores an invalid license on a presenter page instead of locking the presenter out', async () => {
       const { body } = await create(await issuer.sign({ stormInactivityHours: 48 }));
-      const res = await adminStorm({ httpMethod: 'GET', headers: bearer('junk'), queryStringParameters: { adminKey: body.adminKey } });
+      const res = await adminStorm({ httpMethod: 'GET', headers: { ...bearer('junk'), 'x-admin-key': body.adminKey } });
       expect(res.statusCode).toBe(200);
       expect(JSON.parse(res.body).license.limits.stormInactivityHours).toBe(48);
     });
@@ -364,7 +364,7 @@ describe('license enforcement', () => {
     it('does not affect storms that already exist', async () => {
       const { body } = await create();
       process.env.ANONYMOUS_LICENSE_JWT = 'junk';
-      const res = await adminStorm({ httpMethod: 'GET', headers: {}, queryStringParameters: { adminKey: body.adminKey } });
+      const res = await adminStorm({ httpMethod: 'GET', headers: { ...{}, 'x-admin-key': body.adminKey } });
       expect(res.statusCode).toBe(200);
     });
   });

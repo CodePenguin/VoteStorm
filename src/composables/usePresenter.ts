@@ -1,6 +1,8 @@
 import { computed, ref, type Ref } from 'vue';
 import { api, ApiError } from '@/api';
 import { copyText } from '@/composables/useClipboard';
+import { resultsUrl } from '@/lib/fragment';
+import { renameRemembered } from '@/lib/recentStorms';
 import type { AdminQuestion, AdminStorm, AdminStormData, LicenseSummary, QuestionPayload, Tally, VisibleTally } from '@/shared/types';
 
 export interface PresenterOptions {
@@ -21,14 +23,13 @@ export function usePresenter(adminKey: Ref<string>, options: PresenterOptions = 
   const error = ref<string | null>(null);
   const copiedQuestion = ref<number | null>(null);
 
-  const enc = () => encodeURIComponent(adminKey.value);
-  const patchStorm = (body: Record<string, unknown>) =>
-    api('admin-storm', { method: 'PATCH', body: JSON.stringify({ adminKey: adminKey.value, ...body }) });
-  const patchQuestion = (body: Record<string, unknown>) =>
-    api('admin-questions', { method: 'PATCH', body: JSON.stringify({ adminKey: adminKey.value, ...body }) });
+  // The admin key goes in a header, never in the URL or the body, so it stays out of logs.
+  const keyed = (): Pick<RequestInit, 'headers'> => ({ headers: { 'x-admin-key': adminKey.value } });
+  const patchStorm = (body: Record<string, unknown>) => api('admin-storm', { method: 'PATCH', ...keyed(), body: JSON.stringify(body) });
+  const patchQuestion = (body: Record<string, unknown>) => api('admin-questions', { method: 'PATCH', ...keyed(), body: JSON.stringify(body) });
 
   async function load() {
-    const data = await api<AdminStormData>(`admin-storm?adminKey=${enc()}`);
+    const data = await api<AdminStormData>('admin-storm', keyed());
     storm.value = data.storm;
     questions.value = data.questions;
     showConnect.value = !!data.showConnect;
@@ -99,7 +100,7 @@ export function usePresenter(adminKey: Ref<string>, options: PresenterOptions = 
   async function saveQuestion(payload: QuestionPayload, editingId: number | null): Promise<boolean> {
     return act(async () => {
       if (editingId === null) {
-        await api('admin-questions', { method: 'POST', body: JSON.stringify({ adminKey: adminKey.value, ...payload }) });
+        await api('admin-questions', { method: 'POST', ...keyed(), body: JSON.stringify(payload) });
         return;
       }
       const send = (clearVotes: boolean) => patchQuestion({ questionId: editingId, edit: { ...payload, clearVotes } });
@@ -114,18 +115,27 @@ export function usePresenter(adminKey: Ref<string>, options: PresenterOptions = 
 
   async function deleteStorm(): Promise<boolean> {
     if (!confirmFn('Delete this Storm? This cannot be undone.')) return false;
-    return act(() => api('admin-storm', { method: 'DELETE', body: JSON.stringify({ adminKey: adminKey.value }) }), false);
+    return act(() => api('admin-storm', { method: 'DELETE', ...keyed() }), false);
   }
 
   /** Copies this Storm's questions into a new Storm. Returns the new admin key, or null (with the error shown) if it could not. */
   async function duplicateStorm(): Promise<string | null> {
     try {
-      const data = await api<{ adminKey: string }>('duplicate-storm', { method: 'POST', body: JSON.stringify({ adminKey: adminKey.value }) });
+      const data = await api<{ adminKey: string }>('duplicate-storm', { method: 'POST', ...keyed(), body: '{}' });
       error.value = null;
       return data.adminKey;
     } catch (e) {
       error.value = message(e);
       return null;
+    }
+  }
+
+  /** Names the Storm (empty clears the name). The list of recent Storms on this device follows. */
+  async function setName(name: string) {
+    const clean = name.trim();
+    if (await act(() => patchStorm({ name: clean }), false)) {
+      if (storm.value) storm.value.name = clean || null;
+      renameRemembered(adminKey.value, clean || null);
     }
   }
 
@@ -141,7 +151,7 @@ export function usePresenter(adminKey: Ref<string>, options: PresenterOptions = 
   const startTimer = (q: AdminQuestion, seconds: number) => act(() => patchStorm({ questionId: q.id, votingSeconds: seconds }));
   const addTime = (q: AdminQuestion, seconds: number) => act(() => patchStorm({ questionId: q.id, votingAddSeconds: seconds }));
 
-  const questionLink = (q: AdminQuestion) => `${window.location.origin}/results/${resultsKey.value}?q=${q.id}`;
+  const questionLink = (q: AdminQuestion) => resultsUrl(window.location.origin, resultsKey.value ?? '', q.id);
 
   async function copyQuestionLink(q: AdminQuestion) {
     const url = questionLink(q);
@@ -159,14 +169,14 @@ export function usePresenter(adminKey: Ref<string>, options: PresenterOptions = 
   return {
     storm, questions, showConnect, resultsBackground, resultsKey, license, error, copiedQuestion,
     currentQ, currentIndex,
-    load, safeLoad, onTally, canStep, stepQuestion, activate, swap, saveQuestion, deleteStorm, duplicateStorm, setConnect, setResultsBackground, lockVoting, startTimer, addTime, copyQuestionLink, questionLink,
+    load, safeLoad, onTally, canStep, stepQuestion, activate, swap, saveQuestion, deleteStorm, duplicateStorm, setName, setConnect, setResultsBackground, lockVoting, startTimer, addTime, copyQuestionLink, questionLink,
     setQuestionFlag: (flags: Record<string, unknown>) => act(() => patchStorm(flags)),
     resetQuestion: (questionId: number) => act(() => patchQuestion({ questionId, action: 'reset' })),
     resetStorm: () => act(() => patchStorm({ action: 'reset' })),
     closeStorm: () => act(() => patchStorm({ status: 'closed' })),
     reopenStorm: () => act(() => patchStorm({ status: storm.value?.current_question_id ? 'active' : 'lobby' })),
     deleteQuestion: (questionId: number) =>
-      act(() => api('admin-questions', { method: 'DELETE', body: JSON.stringify({ adminKey: adminKey.value, questionId }) })),
+      act(() => api('admin-questions', { method: 'DELETE', ...keyed(), body: JSON.stringify({ questionId }) })),
   };
 }
 

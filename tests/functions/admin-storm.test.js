@@ -41,7 +41,7 @@ describe('admin-storm function', () => {
   });
 
   it('returns storm detail with questions and tallies', async () => {
-    const res = await handler({ httpMethod: 'GET', queryStringParameters: { adminKey } });
+    const res = await handler({ httpMethod: 'GET', headers: { 'x-admin-key': adminKey } });
     const body = JSON.parse(res.body);
     expect(body.storm.storm_code).toBe(stormCode);
     expect(body.questions).toHaveLength(1);
@@ -113,7 +113,7 @@ describe('admin-storm function', () => {
 
   it('deletes the storm and its questions', async () => {
     await handler({ httpMethod: 'DELETE', body: JSON.stringify({ adminKey }) });
-    const res = await handler({ httpMethod: 'GET', queryStringParameters: { adminKey } });
+    const res = await handler({ httpMethod: 'GET', headers: { 'x-admin-key': adminKey } });
     expect(res.statusCode).toBe(401);
   });
 
@@ -140,7 +140,7 @@ describe('admin-storm function', () => {
     expect(JSON.parse(res.body)).toEqual({ error: 'Invalid questionId' });
     expect(publishEvent).not.toHaveBeenCalled();
 
-    const getRes = await handler({ httpMethod: 'GET', queryStringParameters: { adminKey } });
+    const getRes = await handler({ httpMethod: 'GET', headers: { 'x-admin-key': adminKey } });
     const body = JSON.parse(getRes.body);
     expect(body.storm.current_question_id).toBeNull();
   });
@@ -197,20 +197,20 @@ describe('admin-storm function', () => {
   });
 
   it('showConnect defaults to visible in an empty lobby and is reported on GET', async () => {
-    const res = await handler({ httpMethod: 'GET', queryStringParameters: { adminKey } });
+    const res = await handler({ httpMethod: 'GET', headers: { 'x-admin-key': adminKey } });
     expect(JSON.parse(res.body).showConnect).toBe(true);
   });
 
   it('presenter can show the join screen during a live question and it persists, publishing a state event', async () => {
     await handler({ httpMethod: 'PATCH', body: JSON.stringify({ adminKey, status: 'active', currentQuestionId: questionId }) });
-    let res = await handler({ httpMethod: 'GET', queryStringParameters: { adminKey } });
+    let res = await handler({ httpMethod: 'GET', headers: { 'x-admin-key': adminKey } });
     expect(JSON.parse(res.body).showConnect).toBe(false);
     vi.clearAllMocks();
 
     res = await handler({ httpMethod: 'PATCH', body: JSON.stringify({ adminKey, showConnect: true }) });
     expect(res.statusCode).toBe(200);
     expect(publishEvent).toHaveBeenCalledWith(stormCode, 'state', expect.objectContaining({ showConnect: true, status: 'active' }));
-    res = await handler({ httpMethod: 'GET', queryStringParameters: { adminKey } });
+    res = await handler({ httpMethod: 'GET', headers: { 'x-admin-key': adminKey } });
     expect(JSON.parse(res.body).showConnect).toBe(true);
   });
 
@@ -221,14 +221,69 @@ describe('admin-storm function', () => {
 
     await handler({ httpMethod: 'PATCH', body: JSON.stringify({ adminKey, status: 'closed' }) });
     expect(publishEvent.mock.calls[0][2].showConnect).toBe(false);
-    const res = await handler({ httpMethod: 'GET', queryStringParameters: { adminKey } });
+    const res = await handler({ httpMethod: 'GET', headers: { 'x-admin-key': adminKey } });
     expect(JSON.parse(res.body).showConnect).toBe(false);
+  });
+
+  describe('how the admin key arrives', () => {
+    it('is read from the x-admin-key header, with nothing in the URL or body', async () => {
+      const get = await handler({ httpMethod: 'GET', headers: { 'x-admin-key': adminKey } });
+      expect(get.statusCode).toBe(200);
+      expect(JSON.parse(get.body).storm.storm_code).toBe(stormCode);
+      const patch = await handler({ httpMethod: 'PATCH', headers: { 'X-Admin-Key': adminKey }, body: JSON.stringify({ showConnect: true }) });
+      expect(patch.statusCode).toBe(200);
+      const created = await questionsHandler({ httpMethod: 'POST', headers: { 'x-admin-key': adminKey }, body: JSON.stringify({ type: 'choice', prompt: 'Via header', options: ['A', 'B'] }) });
+      expect(created.statusCode).toBe(200);
+      expect((await handler({ httpMethod: 'DELETE', headers: { 'x-admin-key': adminKey } })).statusCode).toBe(200);
+    });
+
+    it('refuses a wrong key in the header, even if the body has the right one', async () => {
+      const res = await handler({ httpMethod: 'PATCH', headers: { 'x-admin-key': 'wrong' }, body: JSON.stringify({ adminKey, showConnect: true }) });
+      expect(res.statusCode).toBe(401);
+      expect((await handler({ httpMethod: 'GET', headers: {} })).statusCode).toBe(401);
+    });
+
+    it('does not read the key from the URL, so it can never be logged there', async () => {
+      const res = await handler({ httpMethod: 'GET', queryStringParameters: { adminKey } });
+      expect(res.statusCode).toBe(401);
+    });
+  });
+
+  describe('Storm name', () => {
+    const patch = (body) => handler({ httpMethod: 'PATCH', headers: { 'x-admin-key': adminKey }, body: JSON.stringify(body) });
+    const name = async () => JSON.parse((await handler({ httpMethod: 'GET', headers: { 'x-admin-key': adminKey } })).body).storm.name;
+
+    it('starts unnamed, stores a trimmed name, and clears it with an empty value or null', async () => {
+      expect(await name()).toBeNull();
+      expect((await patch({ name: '  Quarterly all-hands  ' })).statusCode).toBe(200);
+      expect(await name()).toBe('Quarterly all-hands');
+      await patch({ name: '' });
+      expect(await name()).toBeNull();
+      await patch({ name: 'Again' });
+      await patch({ name: null });
+      expect(await name()).toBeNull();
+    });
+
+    it('refuses names that are too long or not text, and keeps the old one', async () => {
+      await patch({ name: 'Keep me' });
+      for (const bad of ['x'.repeat(81), 42, {}, ['a']]) expect((await patch({ name: bad })).statusCode).toBe(400);
+      expect((await patch({ name: 'x'.repeat(80) })).statusCode).toBe(200);
+      await patch({ name: 'Keep me' });
+      expect((await patch({ name: 'y'.repeat(200) })).statusCode).toBe(400);
+      expect(await name()).toBe('Keep me');
+    });
+
+    it('does not publish a state event just for a rename', async () => {
+      vi.clearAllMocks();
+      await patch({ name: 'Quiet' });
+      expect(publishEvent).not.toHaveBeenCalled();
+    });
   });
 
   describe('locking voting and the timer', () => {
     const patch = (body) => handler({ httpMethod: 'PATCH', body: JSON.stringify({ adminKey, ...body }) });
     const row = async () => (await createDb().execute({ sql: 'SELECT closes_at FROM questions WHERE id = ?', args: [questionId] })).rows[0];
-    const detail = async () => JSON.parse((await handler({ httpMethod: 'GET', queryStringParameters: { adminKey } })).body).questions[0];
+    const detail = async () => JSON.parse((await handler({ httpMethod: 'GET', headers: { 'x-admin-key': adminKey } })).body).questions[0];
     const live = () => patch({ status: 'active', currentQuestionId: questionId });
     const lastState = () => publishEvent.mock.calls.filter((c) => c[1] === 'state').at(-1)[2];
 
@@ -301,7 +356,7 @@ describe('admin-storm function', () => {
 
   describe('results background colour', () => {
     const patch = (body) => handler({ httpMethod: 'PATCH', body: JSON.stringify({ adminKey, ...body }) });
-    const detail = async () => JSON.parse((await handler({ httpMethod: 'GET', queryStringParameters: { adminKey } })).body);
+    const detail = async () => JSON.parse((await handler({ httpMethod: 'GET', headers: { 'x-admin-key': adminKey } })).body);
 
     it('starts with no colour (the default theme)', async () => {
       expect((await detail()).resultsBackground).toBeNull();

@@ -6,6 +6,7 @@ import { api, ApiError } from '@/api';
 import { subscribeStorm } from '@/composables/useStormChannel';
 import { normalizeTally, responsesLabel } from '@/lib/tally';
 import { resultsTheme } from '@/lib/color';
+import { readFragment } from '@/lib/fragment';
 import { useVotingClock } from '@/composables/useVotingClock';
 import type { ClosedQuestion, Question, StormState, Tally } from '@/shared/types';
 import QrCode from '@/components/QrCode.vue';
@@ -14,10 +15,11 @@ import QuestionResults from '@/components/QuestionResults.vue';
 import ResultsCarousel from '@/components/ResultsCarousel.vue';
 
 const route = useRoute();
-const resultsKey = computed(() => String(route.params.resultsKey ?? ''));
+// The key and the pinned question live after the `#`, which a browser never sends to a server.
+const fragment = computed(() => readFragment(route.hash));
+const resultsKey = computed(() => fragment.value.get('key') ?? '');
 const lockedId = computed(() => {
-  const q = route.query.q;
-  const value = Array.isArray(q) ? q[0] : q;
+  const value = fragment.value.get('q');
   return value && /^\d+$/.test(value) ? Number(value) : null;
 });
 

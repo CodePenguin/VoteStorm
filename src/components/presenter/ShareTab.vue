@@ -2,6 +2,7 @@
 import { ref } from 'vue';
 import QrCode from '@/components/QrCode.vue';
 import { copyText } from '@/composables/useClipboard';
+import { resultsUrl } from '@/lib/fragment';
 
 const props = defineProps<{ stormCode: string; resultsKey: string | null }>();
 const emit = defineEmits<{ copyFailed: [] }>();
@@ -12,7 +13,7 @@ const kinds = [
   { kind: 'results', title: 'Results', alt: 'results' },
 ] as const;
 
-const urlFor = (kind: string) => `${window.location.origin}/${kind}/${kind === 'results' ? props.resultsKey : props.stormCode}`;
+const urlFor = (kind: string) => (kind === 'results' ? resultsUrl(window.location.origin, props.resultsKey ?? '') : `${window.location.origin}/vote/${props.stormCode}`);
 
 async function copy(kind: string) {
   if (await copyText(urlFor(kind))) {

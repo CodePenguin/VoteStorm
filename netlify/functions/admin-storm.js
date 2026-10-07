@@ -1,5 +1,7 @@
 import { createDb, initSchema, getStormByAdminKeyHash, touchStormActivity, deleteStormCascade, deleteVotesForStorm, connectVisible, resultsBackground } from '../../lib/db.js';
 import { normalizeHexColor } from '../../lib/color.js';
+import { adminKeyFrom } from '../../lib/adminKey.js';
+import { MAX_NAME_LENGTH, normalizeStormName } from '../../lib/storms.js';
 import { hashAdminKey, deriveResultsKey, hashResultsKey } from '../../lib/stormCode.js';
 import { applyPresentedLicense, describeLicense } from '../../lib/license.js';
 import { computeTally } from '../../lib/tally.js';
@@ -11,14 +13,13 @@ export async function handler(event) {
   const db = createDb();
   await initSchema(db);
 
-  const params = event.queryStringParameters || {};
   let bodyData;
   try {
     bodyData = event.body ? JSON.parse(event.body) : {};
   } catch {
     return json(400, { error: 'Invalid JSON' });
   }
-  const adminKey = params.adminKey || bodyData.adminKey;
+  const adminKey = adminKeyFrom(event, bodyData);
   if (!adminKey) return json(401, { error: 'Invalid admin key' });
 
   const storm = await getStormByAdminKeyHash(db, hashAdminKey(adminKey));
@@ -82,6 +83,13 @@ export async function handler(event) {
       if (newBackground === undefined) return json(400, { error: 'resultsBackground must be a colour like #1e293b' });
     }
 
+    // A name is text up to MAX_NAME_LENGTH, or null/'' to clear it; anything else is refused before anything is written.
+    let newName;
+    if (bodyData.name !== undefined) {
+      newName = normalizeStormName(bodyData.name);
+      if (newName === undefined) return json(400, { error: `The name must be text of at most ${MAX_NAME_LENGTH} characters` });
+    }
+
     // Voting lock / timer for a question: exactly one of votingLocked, votingSeconds, votingAddSeconds.
     let newClosesAt;
     const votingKeys = ['votingLocked', 'votingSeconds', 'votingAddSeconds'].filter((k) => bodyData[k] !== undefined);
@@ -136,6 +144,10 @@ export async function handler(event) {
     if (newBackground !== undefined) {
       fields.push('results_background = ?');
       args.push(newBackground);
+    }
+    if (newName !== undefined) {
+      fields.push('name = ?');
+      args.push(newName);
     }
     if (fields.length > 0) {
       args.push(storm.storm_code);

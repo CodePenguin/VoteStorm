@@ -11,9 +11,10 @@ declare module 'vue-router' {
 
 export const routes = [
   { path: '/', name: 'landing', component: () => import('./views/LandingView.vue') },
-  { path: '/presenter/:adminKey?', name: 'presenter', component: () => import('./views/PresenterView.vue'), meta: { title: 'Presenter' } },
+  { path: '/presenter', name: 'presenter', component: () => import('./views/PresenterView.vue'), meta: { title: 'Presenter' } },
   { path: '/vote/:stormCode', name: 'vote', component: () => import('./views/VoteView.vue'), meta: { title: 'Vote' } },
-  { path: '/results/:resultsKey', name: 'results', component: () => import('./views/ResultsView.vue'), meta: { ownFooter: true, title: 'Results' } },
+  { path: '/results', name: 'results', component: () => import('./views/ResultsView.vue'), meta: { ownFooter: true, title: 'Results' } },
+  { path: '/storms', name: 'storms', component: () => import('./views/StormsView.vue'), meta: { title: 'Your Storms' } },
   { path: '/license', name: 'license', component: () => import('./views/LicenseView.vue'), meta: { title: 'License' } },
   { path: '/privacy', name: 'privacy', component: () => import('./views/PrivacyView.vue'), meta: { title: 'Privacy' } },
   { path: '/:pathMatch(.*)*', name: 'not-found', component: () => import('./views/NotFoundView.vue'), meta: { title: 'Page not found' } },

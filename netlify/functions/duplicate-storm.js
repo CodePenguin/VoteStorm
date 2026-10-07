@@ -1,7 +1,8 @@
 import { createDb, initSchema, getStormByAdminKeyHash, sweepExpiredStorms, deleteStormCascade, resultsBackground } from '../../lib/db.js';
 import { hashAdminKey } from '../../lib/stormCode.js';
 import { ConfigError, LicenseError, configErrorResponse, resolveLicense } from '../../lib/license.js';
-import { insertStorm, stormLimitResponse } from '../../lib/storms.js';
+import { insertStorm, stormLimitResponse, MAX_NAME_LENGTH } from '../../lib/storms.js';
+import { adminKeyFrom } from '../../lib/adminKey.js';
 import { rateLimitByIp } from '../../lib/rateLimit.js';
 import { json } from '../../lib/http.js';
 
@@ -16,7 +17,8 @@ export async function handler(event) {
   } catch {
     return json(400, { error: 'Invalid JSON' });
   }
-  if (!bodyData.adminKey || typeof bodyData.adminKey !== 'string') return json(401, { error: 'Invalid admin key' });
+  const adminKey = adminKeyFrom(event, bodyData);
+  if (!adminKey) return json(401, { error: 'Invalid admin key' });
 
   let license;
   try {
@@ -33,7 +35,7 @@ export async function handler(event) {
   if (limited) return limited;
   await sweepExpiredStorms(db);
 
-  const source = await getStormByAdminKeyHash(db, hashAdminKey(bodyData.adminKey));
+  const source = await getStormByAdminKeyHash(db, hashAdminKey(adminKey));
   if (!source) return json(401, { error: 'Invalid admin key' });
 
   const questions = (await db.execute({ sql: 'SELECT * FROM questions WHERE storm_code = ? ORDER BY order_index ASC', args: [source.storm_code] })).rows;
@@ -47,7 +49,10 @@ export async function handler(event) {
   const full = await stormLimitResponse(db, license);
   if (full) return full;
 
-  const created = await insertStorm(db, license, { resultsBackground: resultsBackground(source) });
+  const created = await insertStorm(db, license, {
+    resultsBackground: resultsBackground(source),
+    name: source.name ? `Copy of ${source.name}`.slice(0, MAX_NAME_LENGTH) : null,
+  });
   if (!created) return json(503, { error: 'Could not allocate a Storm code. Please try again.' });
 
   try {

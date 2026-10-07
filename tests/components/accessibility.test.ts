@@ -58,7 +58,7 @@ describe('page titles', () => {
       ['/privacy', 'Privacy · VoteStorm'],
       ['/license', 'License · VoteStorm'],
       ['/vote/ABC123', 'Vote · VoteStorm'],
-      ['/results/key', 'Results · VoteStorm'],
+      ['/results', 'Results · VoteStorm'],
       ['/presenter', 'Presenter · VoteStorm'],
       ['/nowhere', 'Page not found · VoteStorm'],
       ['/', 'VoteStorm'],

@@ -9,6 +9,16 @@ const emit = defineEmits<{ deleted: []; duplicated: [adminKey: string] }>();
 
 const DEFAULT_SWATCH = '#0b1120';
 const background = computed(() => props.store.resultsBackground.value);
+const nameText = ref<string | null>(null);
+const shownName = computed(() => nameText.value ?? props.store.storm.value?.name ?? '');
+
+function saveName() {
+  if (nameText.value === null) return;
+  const next = nameText.value.trim();
+  nameText.value = null;
+  if (next !== (props.store.storm.value?.name ?? '')) void props.store.setName(next);
+}
+
 const typed = ref<string | null>(null);
 const hexText = computed(() => typed.value ?? background.value ?? '');
 const hexInvalid = computed(() => typed.value !== null && typed.value.trim() !== '' && !parseHexColor(typed.value));
@@ -33,6 +43,16 @@ function resetColor() {
 
 <template>
   <div>
+    <div class="card" style="margin-bottom: 16px">
+      <div class="card-title">Storm name</div>
+      <label class="sr-only" for="storm-name">Storm name</label>
+      <input
+        id="storm-name" class="input" type="text" maxlength="80" placeholder="Give this Storm a name"
+        :value="shownName" @input="nameText = ($event.target as HTMLInputElement).value" @change="saveName" @keydown.enter="saveName"
+      />
+      <p class="muted" style="font-size: .82rem; margin-top: 8px">Only you see the name. It helps you find this Storm in Your Storms.</p>
+    </div>
+
     <div class="card" style="margin-bottom: 16px">
       <div class="card-title">Results screen</div>
       <div class="toolbar">

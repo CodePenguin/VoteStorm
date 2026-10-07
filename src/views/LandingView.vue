@@ -2,11 +2,14 @@
 import { ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { api } from '@/api';
+import { presenterLocation } from '@/lib/fragment';
+import { loadRecent } from '@/lib/recentStorms';
 
 const router = useRouter();
 const creating = ref(false);
 const error = ref<string | null>(null);
 const licenseProblem = ref(false);
+const hasRecent = loadRecent().length > 0;
 
 async function createStorm() {
   creating.value = true;
@@ -14,7 +17,7 @@ async function createStorm() {
   licenseProblem.value = false;
   try {
     const data = await api<{ adminKey: string }>('create-storm', { method: 'POST' });
-    await router.push(`/presenter/${data.adminKey}`);
+    await router.push(presenterLocation(data.adminKey));
   } catch (err) {
     error.value = (err as Error)?.message || 'Something went wrong';
     licenseProblem.value = (err as { code?: string }).code === 'license_invalid';
@@ -38,6 +41,7 @@ const steps = [
       <h1>VoteStorm</h1>
       <p class="lead">Live polling for presentations, meetings and classrooms. Each session is a <strong>Storm</strong>: add your questions, share one link, and watch the answers arrive as your audience votes from their own devices.</p>
       <button class="btn primary lg" :disabled="creating" @click="createStorm">{{ creating ? 'Creating…' : 'Create a Storm' }}</button>
+      <p v-if="hasRecent" class="your-storms"><RouterLink to="/storms">Your Storms</RouterLink></p>
       <p v-if="error" class="alert error landing-error">
         {{ error }}
         <RouterLink v-if="licenseProblem" to="/license">Manage license</RouterLink>
@@ -62,6 +66,7 @@ const steps = [
 .hero h1 { font-size: clamp(2rem, 6vw, 3rem); }
 .hero .lead { font-size: 1.1rem; color: var(--text-muted); margin: 14px auto 28px; max-width: 500px; text-wrap: balance; }
 .hero .lead strong { color: var(--text); }
+.your-storms { margin-top: 14px; font-size: .95rem; }
 .landing-error { margin: 20px auto 0; max-width: 420px; }
 .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 56px; text-align: left; }
 .step .num { width: 28px; height: 28px; border-radius: 50%; background: var(--accent-soft); color: var(--accent); display: grid; place-items: center; font-weight: 700; font-size: .85rem; margin-bottom: 10px; }

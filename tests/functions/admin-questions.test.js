@@ -35,7 +35,7 @@ describe('admin-questions function', () => {
   });
 
   it('rejects requests with a bad admin key', async () => {
-    const res = await handler({ httpMethod: 'GET', queryStringParameters: { adminKey: 'wrong' } });
+    const res = await handler({ httpMethod: 'GET', headers: { 'x-admin-key': 'wrong' } });
     expect(res.statusCode).toBe(401);
   });
 
@@ -46,7 +46,7 @@ describe('admin-questions function', () => {
     });
     expect(createRes.statusCode).toBe(200);
 
-    const listRes = await handler({ httpMethod: 'GET', queryStringParameters: { adminKey } });
+    const listRes = await handler({ httpMethod: 'GET', headers: { 'x-admin-key': adminKey } });
     const { questions } = JSON.parse(listRes.body);
     expect(questions).toHaveLength(1);
     expect(questions[0].prompt).toBe('Pick one');
@@ -76,7 +76,7 @@ describe('admin-questions function', () => {
     const deleteRes = await handler({ httpMethod: 'DELETE', body: JSON.stringify({ adminKey, questionId: id }) });
     expect(deleteRes.statusCode).toBe(200);
 
-    const listRes = await handler({ httpMethod: 'GET', queryStringParameters: { adminKey } });
+    const listRes = await handler({ httpMethod: 'GET', headers: { 'x-admin-key': adminKey } });
     const { questions } = JSON.parse(listRes.body);
     expect(questions).toHaveLength(0);
   });
@@ -195,7 +195,7 @@ describe('admin-questions function', () => {
     });
     expect(resetRes.statusCode).toBe(404);
 
-    const listRes = await handler({ httpMethod: 'GET', queryStringParameters: { adminKey } });
+    const listRes = await handler({ httpMethod: 'GET', headers: { 'x-admin-key': adminKey } });
     const { questions } = JSON.parse(listRes.body);
     expect(questions).toHaveLength(1);
     expect(questions[0].prompt).toBe('Storm A question');
