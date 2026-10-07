@@ -42,6 +42,9 @@ export function describeActivity(path: string, method: string, rawBody?: unknown
       if (body.action === 'reset') return { working: 'Resetting votes\u2026', done: 'Votes reset' };
       if (has(body, 'showConnect')) return { working: 'Updating join screen\u2026', done: 'Join screen updated' };
       if (has(body, 'resultsBackground')) return { working: 'Updating background\u2026', done: 'Background updated' };
+      if (has(body, 'votingLocked')) return body.votingLocked ? { working: 'Locking voting\u2026', done: 'Voting locked' } : { working: 'Unlocking voting\u2026', done: 'Voting open' };
+      if (has(body, 'votingSeconds')) return { working: 'Starting timer\u2026', done: 'Timer started' };
+      if (has(body, 'votingAddSeconds')) return { working: 'Adding time\u2026', done: 'Time added' };
       if (has(body, 'resultsHidden') || has(body, 'answerShown')) return { working: 'Updating results\u2026', done: 'Results updated' };
       if (has(body, 'currentQuestionId')) return { working: 'Changing question\u2026', done: 'Question changed' };
       if (body.status === 'closed') return { working: 'Ending Storm\u2026', done: 'Storm ended' };

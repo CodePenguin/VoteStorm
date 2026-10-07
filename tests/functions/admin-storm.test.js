@@ -225,6 +225,80 @@ describe('admin-storm function', () => {
     expect(JSON.parse(res.body).showConnect).toBe(false);
   });
 
+  describe('locking voting and the timer', () => {
+    const patch = (body) => handler({ httpMethod: 'PATCH', body: JSON.stringify({ adminKey, ...body }) });
+    const row = async () => (await createDb().execute({ sql: 'SELECT closes_at FROM questions WHERE id = ?', args: [questionId] })).rows[0];
+    const detail = async () => JSON.parse((await handler({ httpMethod: 'GET', queryStringParameters: { adminKey } })).body).questions[0];
+    const live = () => patch({ status: 'active', currentQuestionId: questionId });
+    const lastState = () => publishEvent.mock.calls.filter((c) => c[1] === 'state').at(-1)[2];
+
+    it('starts open, with no timer', async () => {
+      await live();
+      expect((await row()).closes_at).toBeNull();
+      expect((await detail()).voting_ms_left).toBeNull();
+      expect(lastState().currentQuestion.votingMsLeft).toBeNull();
+    });
+
+    it('starts a timer and tells everyone how long is left', async () => {
+      await live();
+      vi.clearAllMocks();
+      const res = await patch({ votingSeconds: 30 });
+      expect(res.statusCode).toBe(200);
+      const left = lastState().currentQuestion.votingMsLeft;
+      expect(left).toBeGreaterThan(29000);
+      expect(left).toBeLessThanOrEqual(30000);
+      expect((await detail()).voting_ms_left).toBeGreaterThan(29000);
+    });
+
+    it('locks voting now, and unlocking clears it', async () => {
+      await live();
+      await patch({ votingLocked: true });
+      expect((await detail()).voting_ms_left).toBe(0);
+      expect(lastState().currentQuestion.votingMsLeft).toBe(0);
+      await patch({ votingLocked: false });
+      expect((await row()).closes_at).toBeNull();
+      expect(lastState().currentQuestion.votingMsLeft).toBeNull();
+    });
+
+    it('adds time to a running timer, and reopens a closed question for that long', async () => {
+      await live();
+      await patch({ votingSeconds: 10 });
+      await patch({ votingAddSeconds: 30 });
+      expect((await detail()).voting_ms_left).toBeGreaterThan(38000);
+
+      await patch({ votingLocked: true });
+      await patch({ votingAddSeconds: 20 });
+      const left = (await detail()).voting_ms_left;
+      expect(left).toBeGreaterThan(19000);
+      expect(left).toBeLessThanOrEqual(20000);
+    });
+
+    it('refuses bad requests and writes nothing', async () => {
+      await live();
+      vi.clearAllMocks();
+      for (const bad of [{ votingSeconds: 0 }, { votingSeconds: 3601 }, { votingSeconds: 1.5 }, { votingSeconds: '30' }, { votingAddSeconds: -5 }, { votingLocked: true, votingSeconds: 30 }]) {
+        expect((await patch(bad)).statusCode).toBe(400);
+      }
+      expect((await patch({ votingLocked: true, questionId: 99999 })).statusCode).toBe(400);
+      expect((await row()).closes_at).toBeNull();
+      expect(publishEvent).not.toHaveBeenCalled();
+    });
+
+    it('has nothing to lock when no question is live', async () => {
+      expect((await patch({ votingLocked: true })).statusCode).toBe(400);
+    });
+
+    it('brings a question live open again, even if it was locked or timed out before', async () => {
+      await live();
+      await patch({ votingLocked: true });
+      const other = JSON.parse((await questionsHandler({ httpMethod: 'POST', body: JSON.stringify({ adminKey, type: 'choice', prompt: 'Two', options: ['X', 'Y'] }) })).body).id;
+      await patch({ status: 'active', currentQuestionId: other });
+      await patch({ status: 'active', currentQuestionId: questionId });
+      expect((await row()).closes_at).toBeNull();
+      expect(lastState().currentQuestion.votingMsLeft).toBeNull();
+    });
+  });
+
   describe('results background colour', () => {
     const patch = (body) => handler({ httpMethod: 'PATCH', body: JSON.stringify({ adminKey, ...body }) });
     const detail = async () => JSON.parse((await handler({ httpMethod: 'GET', queryStringParameters: { adminKey } })).body);

@@ -301,6 +301,60 @@ describe('PresenterView', () => {
     expect(patchCalls('admin-storm')[1]).toEqual({ adminKey: 'ADMINKEY', resultsBackground: null });
   });
 
+  describe('locking voting and the timer', () => {
+    async function presentMode() {
+      const mounted = await mountPresenter();
+      await mounted.wrapper.findAll('.seg button')[1].trigger('click');
+      return mounted;
+    }
+    const voting = (wrapper: ReturnType<typeof mount>) => wrapper.find('.voting-row');
+    const rowButtons = (wrapper: ReturnType<typeof mount>) => voting(wrapper).findAll('button').map((b) => b.text());
+
+    it('offers to lock voting and start a timer on the live question', async () => {
+      const { wrapper } = await presentMode();
+      expect(voting(wrapper).find('.voting-state').text()).toBe('Voting open');
+      expect(rowButtons(wrapper)).toEqual(['Lock voting', '15s', '30s', '1m', '2m', '5m']);
+
+      await btn(wrapper, 'Lock voting').trigger('click');
+      await btn(wrapper, '30s').trigger('click');
+      await btn(wrapper, '2m').trigger('click');
+      await flushPromises();
+      expect(patchCalls('admin-storm')).toEqual([
+        { adminKey: 'ADMINKEY', questionId: 1, votingLocked: true },
+        { adminKey: 'ADMINKEY', questionId: 1, votingSeconds: 30 },
+        { adminKey: 'ADMINKEY', questionId: 1, votingSeconds: 120 },
+      ]);
+    });
+
+    it('shows the countdown while a timer runs, and can add time, lock now or cancel', async () => {
+      data.questions[0].voting_ms_left = 20000;
+      const { wrapper } = await presentMode();
+      expect(voting(wrapper).find('.voting-state').text()).toBe('0:20 left');
+      expect(rowButtons(wrapper)).toEqual(['Lock now', '+30s', 'Cancel timer', '15s', '30s', '1m', '2m', '5m']);
+
+      await btn(wrapper, '+30s').trigger('click');
+      await btn(wrapper, 'Cancel timer').trigger('click');
+      await btn(wrapper, 'Lock now').trigger('click');
+      await flushPromises();
+      expect(patchCalls('admin-storm')).toEqual([
+        { adminKey: 'ADMINKEY', questionId: 1, votingAddSeconds: 30 },
+        { adminKey: 'ADMINKEY', questionId: 1, votingLocked: false },
+        { adminKey: 'ADMINKEY', questionId: 1, votingLocked: true },
+      ]);
+      wrapper.unmount();
+    });
+
+    it('says when voting is closed and offers to unlock it', async () => {
+      data.questions[0].voting_ms_left = 0;
+      const { wrapper } = await presentMode();
+      expect(voting(wrapper).find('.voting-state').text()).toBe('Voting closed');
+      expect(rowButtons(wrapper)[0]).toBe('Unlock voting');
+      await btn(wrapper, 'Unlock voting').trigger('click');
+      await flushPromises();
+      expect(patchCalls('admin-storm')).toEqual([{ adminKey: 'ADMINKEY', questionId: 1, votingLocked: false }]);
+    });
+  });
+
   it('shows the license in effect, with its limits, on the Control tab', async () => {
     const { wrapper } = await mountPresenter();
     await wrapper.findAll('.tab')[1].trigger('click');

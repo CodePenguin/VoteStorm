@@ -90,6 +90,16 @@ describe('results key', () => {
     expect(body.storm.current_question_id).toBe(q2);
   });
 
+  it('brings a question live open, even if it was locked before', async () => {
+    const db = createDb();
+    await db.execute({ sql: 'UPDATE questions SET closes_at = ? WHERE id = ?', args: [Date.now() - 1000, q2] });
+    await go({ resultsKey, questionId: q2 });
+    expect(publishEvent).toHaveBeenCalledWith(stormCode, 'state', expect.objectContaining({
+      currentQuestion: expect.objectContaining({ id: q2, votingMsLeft: null }),
+    }));
+    expect((await db.execute({ sql: 'SELECT closes_at FROM questions WHERE id = ?', args: [q2] })).rows[0].closes_at).toBeNull();
+  });
+
   it('does nothing (and publishes nothing) when the question is already live', async () => {
     await go({ resultsKey, questionId: q1 });
     vi.clearAllMocks();

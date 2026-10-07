@@ -4,6 +4,7 @@ import { useRoute } from 'vue-router';
 import type * as Ably from 'ably';
 import { api, ApiError, getDeviceId } from '@/api';
 import { subscribeStorm } from '@/composables/useStormChannel';
+import { useVotingClock } from '@/composables/useVotingClock';
 import { normalizeTally, ratingValues } from '@/lib/tally';
 import type { ClosedQuestion, Question, StormState, Tally } from '@/shared/types';
 import BrandMark from '@/components/BrandMark.vue';
@@ -16,6 +17,8 @@ const stormCode = computed(() => String(route.params.stormCode ?? ''));
 const deviceId = getDeviceId();
 
 const currentQuestion = ref<Question | null>(null);
+const clock = useVotingClock(() => currentQuestion.value?.votingMsLeft);
+const votingClosed = computed(() => clock.phase.value === 'closed');
 const tally = ref<Tally>(normalizeTally(null));
 const stormClosed = ref(false);
 const slides = ref<ClosedQuestion[] | null>(null);
@@ -116,6 +119,7 @@ async function vote(value: number | number[]) {
     myVote.value = value;
     hasVoted.value = true;
   } catch (err) {
+    if ((err as { code?: string }).code === 'voting_closed') clock.markClosed();
     voteError.value = (err as Error)?.message || 'Could not submit your vote. Please try again.';
   } finally {
     submitting.value = false;
@@ -193,12 +197,15 @@ onBeforeUnmount(() => ably?.close());
         <p>This page updates automatically &mdash; no need to refresh.</p>
       </div>
 
-      <div v-else-if="currentQuestion && hasVoted">
+      <div v-else-if="currentQuestion && (hasVoted || votingClosed)">
         <div class="card state">
-          <div class="icon ok"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5" /></svg></div>
-          <h2>Thanks, your vote is in</h2>
+          <div v-if="hasVoted" class="icon ok"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5" /></svg></div>
+          <div v-else class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="9" rx="2" /><path d="M8 11V8a4 4 0 0 1 8 0v3" /></svg></div>
+          <h2>{{ votingClosed ? 'Voting closed' : 'Thanks, your vote is in' }}</h2>
+          <p v-if="votingClosed" class="muted">{{ hasVoted ? 'Your vote is in.' : 'This question is no longer taking votes.' }}</p>
+          <p v-else-if="clock.phase.value === 'running'" class="voting-clock" role="timer">{{ clock.label.value }} left to change your vote</p>
           <p v-if="currentQuestion.correct" class="correct-note"><strong>Correct answer:</strong> {{ correctLabel }}</p>
-          <button class="btn" style="margin-top: 16px" @click="changeVote">Change my vote</button>
+          <button v-if="hasVoted && !votingClosed" class="btn" style="margin-top: 16px" @click="changeVote">Change my vote</button>
         </div>
         <div class="card slide-card" style="margin-top: 16px; min-height: 0">
           <div class="slide-eyebrow">{{ currentQuestion.resultsHidden ? 'Responses' : 'Live results' }}</div>
@@ -208,6 +215,7 @@ onBeforeUnmount(() => ably?.close());
       </div>
 
       <div v-else-if="currentQuestion">
+        <p v-if="clock.phase.value === 'running'" class="voting-clock" role="timer">{{ clock.label.value }} left</p>
         <h1 class="prompt">{{ currentQuestion.prompt }}</h1>
         <div v-if="voteError" class="alert error" style="margin-bottom: 16px">{{ voteError }}</div>
         <p v-if="currentQuestion.correct" class="correct-note" style="margin-bottom: 12px"><strong>Correct answer:</strong> {{ correctLabel }}</p>
@@ -246,6 +254,7 @@ onBeforeUnmount(() => ably?.close());
 .vote-main { flex: 1; padding-top: 28px; padding-bottom: 24px; }
 
 .vote-page .prompt { font-size: clamp(1.4rem, 5.5vw, 1.8rem); margin-bottom: 20px; }
+.voting-clock { display: inline-block; margin-bottom: 12px; padding: 4px 14px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-weight: 700; font-variant-numeric: tabular-nums; }
 .vote-page .hint { color: var(--text-muted); font-size: .9rem; margin-bottom: 16px; }
 .choices { display: grid; gap: 12px; }
 .choice {

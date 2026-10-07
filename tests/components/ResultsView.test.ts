@@ -88,6 +88,23 @@ describe('ResultsView', () => {
     expect(page()).not.toContain('--bg');
   });
 
+  it('shows a countdown, then "Voting closed", beside the Live badge', async () => {
+    const wrapper = await mountResults('/results/KEY', {
+      ...resolved,
+      'get-storm-state': { status: 'active', currentQuestion: { ...q, votingMsLeft: 90000 }, tally: { counts: [3, 1], totalVotes: 4 }, showConnect: false },
+    });
+    expect(wrapper.find('.voting-badge').text()).toBe('1:30');
+
+    channel.handlers.state({ status: 'active', currentQuestion: { ...q, votingMsLeft: 0 }, initialTally: { counts: [3, 1], totalVotes: 4 }, showConnect: false });
+    await flushPromises();
+    expect(wrapper.find('.voting-badge').text()).toBe('Voting closed');
+
+    channel.handlers.state({ status: 'active', currentQuestion: { ...q, votingMsLeft: null }, initialTally: { counts: [3, 1], totalVotes: 4 }, showConnect: false });
+    await flushPromises();
+    expect(wrapper.find('.voting-badge').exists()).toBe(false);
+    wrapper.unmount();
+  });
+
   it('shows the live question with projector bars and the response count', async () => {
     const wrapper = await mountResults('/results/KEY', {
       ...resolved,

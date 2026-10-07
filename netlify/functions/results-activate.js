@@ -42,10 +42,12 @@ export async function handler(event) {
     sql: `UPDATE storms SET status = 'active', current_question_id = ?, show_connect = NULL WHERE storm_code = ?`,
     args: [question.id, storm.storm_code],
   });
+  // A question that comes live starts open, whatever lock or timer it had before.
+  await db.execute({ sql: 'UPDATE questions SET closes_at = NULL WHERE id = ?', args: [question.id] });
   const votes = (await db.execute({ sql: 'SELECT * FROM votes WHERE question_id = ?', args: [question.id] })).rows;
   await publishEvent(storm.storm_code, 'state', {
     status: 'active',
-    currentQuestion: shapeQuestion(question),
+    currentQuestion: shapeQuestion({ ...question, closes_at: null }),
     initialTally: publicTally(question, computeTally(question, votes)),
     showConnect: connectVisible({ show_connect: null }, 'active', question.id),
     resultsBackground: resultsBackground(storm),

@@ -62,6 +62,60 @@ describe('VoteView', () => {
     expect(wrapper.text()).toContain('Waiting for the next question');
   });
 
+  describe('locked and timed voting', () => {
+    const timed = (ms: number | null) => state({ currentQuestion: { ...choice, votingMsLeft: ms } });
+
+    it('shows the time left while voting is open, and still takes votes', async () => {
+      const wrapper = await mountVote(timed(45000));
+      expect(wrapper.find('.voting-clock').text()).toBe('0:45 left');
+      expect(wrapper.findAll('.choice')).toHaveLength(3);
+      wrapper.unmount();
+    });
+
+    it('does not show a clock for a question with no timer', async () => {
+      const wrapper = await mountVote(timed(null));
+      expect(wrapper.find('.voting-clock').exists()).toBe(false);
+    });
+
+    it('shows results instead of choices once voting is closed, for someone who has not voted', async () => {
+      const wrapper = await mountVote(timed(0));
+      expect(wrapper.text()).toContain('Voting closed');
+      expect(wrapper.text()).toContain('no longer taking votes');
+      expect(wrapper.findAll('.choice')).toHaveLength(0);
+      expect(wrapper.text()).not.toContain('Change my vote');
+      expect(wrapper.find('.slide-card').exists()).toBe(true);
+    });
+
+    it('keeps a voter\'s answer but takes away "Change my vote" once closed', async () => {
+      localStorage.setItem('votestorm_voted_7', '1');
+      const wrapper = await mountVote(timed(0));
+      expect(wrapper.text()).toContain('Voting closed');
+      expect(wrapper.text()).toContain('Your vote is in.');
+      expect(wrapper.text()).not.toContain('Change my vote');
+    });
+
+    it('closes the question live when the presenter locks it', async () => {
+      const wrapper = await mountVote(timed(null));
+      expect(wrapper.findAll('.choice')).toHaveLength(3);
+      channel.handlers.state({ status: 'active', currentQuestion: { ...choice, votingMsLeft: 0 }, initialTally: { counts: [0, 0, 0], totalVotes: 0 }, showConnect: false });
+      await flushPromises();
+      expect(wrapper.text()).toContain('Voting closed');
+      expect(wrapper.findAll('.choice')).toHaveLength(0);
+    });
+
+    it('believes the server when it refuses a vote because voting has closed', async () => {
+      const wrapper = await mountVote(timed(60000));
+      apiMock.mockImplementation(async () => {
+        throw Object.assign(new Error('Voting has closed for this question.'), { code: 'voting_closed' });
+      });
+      await wrapper.findAll('.choice')[0].trigger('click');
+      await flushPromises();
+      expect(wrapper.text()).toContain('Voting closed');
+      expect(wrapper.findAll('.choice')).toHaveLength(0);
+      wrapper.unmount();
+    });
+  });
+
   it('shows a single-choice question and submits a vote with the device id', async () => {
     const wrapper = await mountVote(state());
     expect(wrapper.text()).toContain('Favourite fruit?');

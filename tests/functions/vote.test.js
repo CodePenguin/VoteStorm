@@ -41,6 +41,41 @@ describe('vote function', () => {
     delete process.env.TURSO_DATABASE_URL;
   });
 
+  describe('locked and timed voting', () => {
+    const cast = (value, deviceId = 'dev-a') => handler({ httpMethod: 'POST', body: JSON.stringify({ stormCode: 'STORM01', questionId: 1, deviceId, value }) });
+    const setClosesAt = (ms) => createDb().execute({ sql: 'UPDATE questions SET closes_at = ? WHERE id = 1', args: [ms] });
+
+    it('accepts votes while a timer is still running', async () => {
+      await setClosesAt(Date.now() + 60000);
+      expect((await cast(0)).statusCode).toBe(200);
+    });
+
+    it('refuses new votes once the time is up or the question is locked, and says why', async () => {
+      await setClosesAt(Date.now() - 1);
+      const res = await cast(0);
+      expect(res.statusCode).toBe(409);
+      expect(JSON.parse(res.body)).toMatchObject({ code: 'voting_closed' });
+      expect(publishEvent).not.toHaveBeenCalled();
+      const votes = await createDb().execute('SELECT COUNT(*) AS n FROM votes');
+      expect(Number(votes.rows[0].n)).toBe(0);
+    });
+
+    it('also refuses a change to an answer that was already given', async () => {
+      expect((await cast(0)).statusCode).toBe(200);
+      await setClosesAt(Date.now() - 1);
+      expect((await cast(1)).statusCode).toBe(409);
+      const row = (await createDb().execute('SELECT value FROM votes')).rows[0];
+      expect(row.value).toBe('0');
+    });
+
+    it('takes votes again once the question is unlocked', async () => {
+      await setClosesAt(Date.now() - 1);
+      expect((await cast(0)).statusCode).toBe(409);
+      await setClosesAt(null);
+      expect((await cast(0)).statusCode).toBe(200);
+    });
+  });
+
   it('records a vote and publishes a tally', async () => {
     const res = await handler({
       httpMethod: 'POST',

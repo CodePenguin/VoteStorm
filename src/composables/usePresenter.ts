@@ -125,6 +125,10 @@ export function usePresenter(adminKey: Ref<string>, options: PresenterOptions = 
     if (await act(() => patchStorm({ resultsBackground: color }), false)) resultsBackground.value = color;
   }
 
+  const lockVoting = (q: AdminQuestion, locked: boolean) => act(() => patchStorm({ questionId: q.id, votingLocked: locked }));
+  const startTimer = (q: AdminQuestion, seconds: number) => act(() => patchStorm({ questionId: q.id, votingSeconds: seconds }));
+  const addTime = (q: AdminQuestion, seconds: number) => act(() => patchStorm({ questionId: q.id, votingAddSeconds: seconds }));
+
   const questionLink = (q: AdminQuestion) => `${window.location.origin}/results/${resultsKey.value}?q=${q.id}`;
 
   async function copyQuestionLink(q: AdminQuestion) {
@@ -143,7 +147,7 @@ export function usePresenter(adminKey: Ref<string>, options: PresenterOptions = 
   return {
     storm, questions, showConnect, resultsBackground, resultsKey, license, error, copiedQuestion,
     currentQ, currentIndex,
-    load, safeLoad, onTally, canStep, stepQuestion, activate, swap, saveQuestion, deleteStorm, setConnect, setResultsBackground, copyQuestionLink, questionLink,
+    load, safeLoad, onTally, canStep, stepQuestion, activate, swap, saveQuestion, deleteStorm, setConnect, setResultsBackground, lockVoting, startTimer, addTime, copyQuestionLink, questionLink,
     setQuestionFlag: (flags: Record<string, unknown>) => act(() => patchStorm(flags)),
     resetQuestion: (questionId: number) => act(() => patchQuestion({ questionId, action: 'reset' })),
     resetStorm: () => act(() => patchStorm({ action: 'reset' })),

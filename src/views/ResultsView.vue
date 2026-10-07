@@ -6,6 +6,7 @@ import { api, ApiError } from '@/api';
 import { subscribeStorm } from '@/composables/useStormChannel';
 import { normalizeTally, responsesLabel } from '@/lib/tally';
 import { resultsTheme } from '@/lib/color';
+import { useVotingClock } from '@/composables/useVotingClock';
 import type { ClosedQuestion, Question, StormState, Tally } from '@/shared/types';
 import QrCode from '@/components/QrCode.vue';
 import BrandMark from '@/components/BrandMark.vue';
@@ -22,6 +23,7 @@ const lockedId = computed(() => {
 
 const stormCode = ref<string | null>(null);
 const currentQuestion = ref<Question | null>(null);
+const clock = useVotingClock(() => currentQuestion.value?.votingMsLeft);
 const tally = ref<Tally>(normalizeTally(null));
 const slides = ref<ClosedQuestion[] | null>(null);
 const stormClosed = ref(false);
@@ -142,9 +144,14 @@ onBeforeUnmount(() => ably?.close());
       <span class="brand">
         <BrandMark />
       </span>
-      <span v-if="!stormClosed" class="badge" :class="connected ? 'active' : 'lobby'">
-        <span class="dot" :class="{ pulse: connected }"></span>
-        <span>{{ connected ? 'Live' : 'Connecting\u2026' }}</span>
+      <span class="topbar-right">
+        <span v-if="currentQuestion && !stormClosed && clock.phase.value !== 'open'" class="voting-badge" :class="clock.phase.value" role="timer">
+          {{ clock.phase.value === 'running' ? clock.label.value : 'Voting closed' }}
+        </span>
+        <span v-if="!stormClosed" class="badge" :class="connected ? 'active' : 'lobby'">
+          <span class="dot" :class="{ pulse: connected }"></span>
+          <span>{{ connected ? 'Live' : 'Connecting\u2026' }}</span>
+        </span>
       </span>
     </div>
 
@@ -197,6 +204,9 @@ onBeforeUnmount(() => ably?.close());
 <style>
 .results-page { flex: 1; display: flex; flex-direction: column; min-height: 100vh; min-height: 100dvh; background: var(--bg); color: var(--text); }
 .results-page .topbar { display: flex; align-items: center; justify-content: space-between; padding: clamp(10px, 2.4vh, 20px) 40px; }
+.results-page .topbar-right { display: flex; align-items: center; gap: 16px; }
+.results-page .voting-badge { font-size: clamp(1.1rem, 2.2vw, 1.9rem); font-weight: 800; font-variant-numeric: tabular-nums; padding: 2px 18px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); }
+.results-page .voting-badge.closed { background: var(--surface-2); color: var(--text-muted); border: 1px solid var(--border); }
 .results-main { flex: 1; display: flex; flex-direction: column; justify-content: center; width: 100%; max-width: 1400px; margin: 0 auto; padding: 0 48px clamp(8px, 2vh, 32px); }
 .results-page .prompt { font-size: clamp(1.6rem, min(4.5vw, 7vh), 4rem); font-weight: 800; margin-bottom: clamp(14px, 3.6vh, 44px); }
 .results-loading { display: flex; align-items: center; justify-content: center; gap: 14px; color: var(--text-muted); font-size: 1.2rem; }

@@ -4,7 +4,7 @@ import { hashAdminKey, deriveResultsKey, hashResultsKey } from '../../lib/stormC
 import { applyPresentedLicense, describeLicense } from '../../lib/license.js';
 import { computeTally } from '../../lib/tally.js';
 import { publishEvent } from '../../lib/realtime.js';
-import { shapeQuestion, publicTally } from '../../lib/question.js';
+import { shapeQuestion, publicTally, votingMsLeft, MAX_VOTING_SECONDS } from '../../lib/question.js';
 import { json } from '../../lib/http.js';
 
 export async function handler(event) {
@@ -34,7 +34,7 @@ export async function handler(event) {
     const questions = [];
     for (const question of questionsResult.rows) {
       const votesResult = await db.execute({ sql: 'SELECT * FROM votes WHERE question_id = ?', args: [question.id] });
-      questions.push({ ...question, tally: computeTally(question, votesResult.rows) });
+      questions.push({ ...question, voting_ms_left: votingMsLeft(question), tally: computeTally(question, votesResult.rows) });
     }
     const resultsKey = deriveResultsKey(adminKey);
     const resultsKeyHash = hashResultsKey(resultsKey);
@@ -82,6 +82,27 @@ export async function handler(event) {
       if (newBackground === undefined) return json(400, { error: 'resultsBackground must be a colour like #1e293b' });
     }
 
+    // Voting lock / timer for a question: exactly one of votingLocked, votingSeconds, votingAddSeconds.
+    let newClosesAt;
+    const votingKeys = ['votingLocked', 'votingSeconds', 'votingAddSeconds'].filter((k) => bodyData[k] !== undefined);
+    if (votingKeys.length > 1) return json(400, { error: 'Send one voting change at a time' });
+    if (votingKeys.length === 1) {
+      const targetId = bodyData.questionId ?? storm.current_question_id;
+      const target = targetId
+        ? (await db.execute({ sql: 'SELECT * FROM questions WHERE id = ? AND storm_code = ?', args: [targetId, storm.storm_code] })).rows[0]
+        : null;
+      if (!target) return json(400, { error: 'There is no question to lock or time' });
+      const now = Date.now();
+      const seconds = bodyData.votingSeconds ?? bodyData.votingAddSeconds;
+      if (votingKeys[0] !== 'votingLocked' && !(Number.isInteger(seconds) && seconds >= 1 && seconds <= MAX_VOTING_SECONDS)) {
+        return json(400, { error: `Seconds must be a whole number from 1 to ${MAX_VOTING_SECONDS}` });
+      }
+      if (votingKeys[0] === 'votingLocked') newClosesAt = bodyData.votingLocked ? now : null;
+      else if (votingKeys[0] === 'votingSeconds') newClosesAt = now + seconds * 1000;
+      else newClosesAt = Math.max(now, Number(target.closes_at) || 0) + seconds * 1000;
+      await db.execute({ sql: 'UPDATE questions SET closes_at = ? WHERE id = ? AND storm_code = ?', args: [newClosesAt, target.id, storm.storm_code] });
+    }
+
     const flagTargetId = bodyData.questionId ?? storm.current_question_id;
     if ((bodyData.resultsHidden !== undefined || bodyData.answerShown !== undefined) && flagTargetId) {
       const sets = [];
@@ -101,6 +122,10 @@ export async function handler(event) {
     if (bodyData.currentQuestionId !== undefined) {
       fields.push('current_question_id = ?');
       args.push(bodyData.currentQuestionId);
+      // A question that comes live starts open, whatever lock or timer it had before.
+      if (Number(bodyData.currentQuestionId) !== Number(storm.current_question_id)) {
+        await db.execute({ sql: 'UPDATE questions SET closes_at = NULL WHERE id = ? AND storm_code = ?', args: [bodyData.currentQuestionId, storm.storm_code] });
+      }
     }
     if (bodyData.showConnect !== undefined) {
       fields.push('show_connect = ?');
@@ -117,7 +142,7 @@ export async function handler(event) {
       await db.execute({ sql: `UPDATE storms SET ${fields.join(', ')} WHERE storm_code = ?`, args });
     }
 
-    if (bodyData.currentQuestionId !== undefined || bodyData.status !== undefined || bodyData.showConnect !== undefined || newBackground !== undefined || bodyData.resultsHidden !== undefined || bodyData.answerShown !== undefined) {
+    if (bodyData.currentQuestionId !== undefined || bodyData.status !== undefined || bodyData.showConnect !== undefined || newBackground !== undefined || votingKeys.length > 0 || bodyData.resultsHidden !== undefined || bodyData.answerShown !== undefined) {
       // When only `status` changes (e.g. closing the storm), currentQuestionId
       // wasn't provided in the body, so re-derive it from the storm's existing
       // current_question_id so clients still get a complete picture.

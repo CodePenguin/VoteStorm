@@ -2,7 +2,7 @@ import { createDb, initSchema, getStormByCode, touchStormActivity } from '../../
 import { stormLicense } from '../../lib/license.js';
 import { computeTally } from '../../lib/tally.js';
 import { publishEvent } from '../../lib/realtime.js';
-import { publicTally } from '../../lib/question.js';
+import { publicTally, votingClosed } from '../../lib/question.js';
 import { rateLimit, rateLimitByIp } from '../../lib/rateLimit.js';
 import { json } from '../../lib/http.js';
 
@@ -43,6 +43,7 @@ export async function handler(event) {
   });
   const question = questionResult.rows[0];
   if (!question) return json(404, { error: 'Question not found' });
+  if (votingClosed(question)) return json(409, { error: 'Voting has closed for this question.', code: 'voting_closed' });
 
   const numericValue = Number(value);
   let storedValue = String(value);

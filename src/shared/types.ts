@@ -14,6 +14,8 @@ export interface Question {
   multi: boolean;
   display: DisplayType;
   resultsHidden: boolean;
+  /** Milliseconds until voting closes: null while open, 0 once locked or timed out. */
+  votingMsLeft?: number | null;
   /** Indexes of the correct options; null until the presenter reveals them. */
   correct: number[] | null;
 }
@@ -64,6 +66,9 @@ export interface AdminQuestion {
   answer_shown: number;
   correct: string | null;
   display: DisplayType | null;
+  closes_at?: number | null;
+  /** Same meaning as Question.votingMsLeft, as of when the presenter's page last loaded. */
+  voting_ms_left?: number | null;
   tally: VisibleTally;
 }
 
