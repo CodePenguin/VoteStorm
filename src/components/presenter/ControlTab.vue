@@ -5,7 +5,7 @@ import { parseHexColor } from '@/lib/color';
 import LicenseLimitsList from '@/components/LicenseLimitsList.vue';
 
 const props = defineProps<{ store: PresenterStore }>();
-const emit = defineEmits<{ deleted: [] }>();
+const emit = defineEmits<{ deleted: []; duplicated: [adminKey: string] }>();
 
 const DEFAULT_SWATCH = '#0b1120';
 const background = computed(() => props.store.resultsBackground.value);
@@ -18,6 +18,11 @@ function saveColor(value: string) {
   if (!color) return;
   typed.value = null;
   if (color !== background.value) void props.store.setResultsBackground(color);
+}
+
+async function duplicate() {
+  const copy = await props.store.duplicateStorm();
+  if (copy) emit('duplicated', copy);
 }
 
 function resetColor() {
@@ -69,11 +74,12 @@ function resetColor() {
         <button class="btn" @click="store.resetStorm()">Reset all votes</button>
         <button v-if="store.storm.value?.status !== 'closed'" class="btn" @click="store.closeStorm()">End Storm</button>
         <button v-else class="btn primary" @click="store.reopenStorm()">Reopen Storm</button>
+        <button class="btn" @click="duplicate">Duplicate Storm</button>
         <span class="spacer"></span>
         <button class="btn danger" @click="store.deleteStorm().then((ok) => ok && emit('deleted'))">Delete Storm</button>
       </div>
       <p class="muted" style="font-size: .82rem; margin-top: 12px">
-        Ending a Storm stops voting but keeps results; reopening resumes it. Deleting removes the Storm and all votes permanently.
+        Ending a Storm stops voting but keeps results; reopening resumes it. Duplicating makes a new Storm with the same questions and background, and no votes. Deleting removes the Storm and all votes permanently.
       </p>
     </div>
   </div>

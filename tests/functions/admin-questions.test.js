@@ -24,7 +24,7 @@ describe('admin-questions function', () => {
     adminKey = generateAdminKey();
     const stormCode = deriveStormCode(adminKey);
     await db.execute({
-      sql: `INSERT INTO storms (admin_key_hash, storm_code, status, created_at) VALUES (?, ?, 'lobby', ?)`,
+      sql: `INSERT INTO storms (admin_key_hash, storm_code, status, created_at, license_json) VALUES (?, ?, 'lobby', ?, '{"id":"anonymous","name":"Anonymous","tier":"anonymous","expiresAt":null,"stormInactivityHours":24}')`,
       args: [hashAdminKey(adminKey), stormCode, Date.now()],
     });
     vi.clearAllMocks();
@@ -172,7 +172,7 @@ describe('admin-questions function', () => {
     const stormCodeB = deriveStormCode(adminKeyB);
     const db = createDb();
     await db.execute({
-      sql: `INSERT INTO storms (admin_key_hash, storm_code, status, created_at) VALUES (?, ?, 'lobby', ?)`,
+      sql: `INSERT INTO storms (admin_key_hash, storm_code, status, created_at, license_json) VALUES (?, ?, 'lobby', ?, '{"id":"anonymous","name":"Anonymous","tier":"anonymous","expiresAt":null,"stormInactivityHours":24}')`,
       args: [hashAdminKey(adminKeyB), stormCodeB, Date.now()],
     });
 
@@ -276,7 +276,7 @@ describe('question editing', () => {
     adminKey = generateAdminKey();
     stormCode = deriveStormCode(adminKey);
     await db.execute({
-      sql: `INSERT INTO storms (admin_key_hash, storm_code, status, created_at) VALUES (?, ?, 'lobby', ?)`,
+      sql: `INSERT INTO storms (admin_key_hash, storm_code, status, created_at, license_json) VALUES (?, ?, 'lobby', ?, '{"id":"anonymous","name":"Anonymous","tier":"anonymous","expiresAt":null,"stormInactivityHours":24}')`,
       args: [hashAdminKey(adminKey), stormCode, Date.now()],
     });
     const created = await handler({ httpMethod: 'POST', body: JSON.stringify({ adminKey, type: 'choice', prompt: 'Pick', options: ['A', 'B'] }) });

@@ -12,6 +12,7 @@ describe('router', () => {
     expect(resolve('/vote/XYZ234')).toMatchObject({ name: 'vote', params: { stormCode: 'XYZ234' } });
     expect(resolve('/results/deadbeef')).toMatchObject({ name: 'results', params: { resultsKey: 'deadbeef' } });
     expect(resolve('/license').name).toBe('license');
+    expect(resolve('/privacy').name).toBe('privacy');
     expect(resolve('/nope/nothing').name).toBe('not-found');
   });
 

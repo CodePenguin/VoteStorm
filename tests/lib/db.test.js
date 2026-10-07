@@ -44,7 +44,7 @@ describe('db', () => {
     const db = createDb(tempDbUrl());
     await initSchema(db);
     await db.execute({
-      sql: `INSERT INTO storms (admin_key_hash, storm_code, status, created_at) VALUES (?, ?, 'lobby', ?)`,
+      sql: `INSERT INTO storms (admin_key_hash, storm_code, status, created_at, license_json) VALUES (?, ?, 'lobby', ?, '{"id":"anonymous","name":"Anonymous","tier":"anonymous","expiresAt":null,"stormInactivityHours":24}')`,
       args: ['hash123', 'STORM01', Date.now()],
     });
     expect((await getStormByCode(db, 'STORM01')).storm_code).toBe('STORM01');
@@ -56,7 +56,7 @@ describe('db', () => {
     const db = createDb(tempDbUrl());
     await initSchema(db);
     await db.execute({
-      sql: `INSERT INTO storms (admin_key_hash, storm_code, status, created_at) VALUES (?, ?, 'lobby', ?)`,
+      sql: `INSERT INTO storms (admin_key_hash, storm_code, status, created_at, license_json) VALUES (?, ?, 'lobby', ?, '{"id":"anonymous","name":"Anonymous","tier":"anonymous","expiresAt":null,"stormInactivityHours":24}')`,
       args: ['hash123', 'STORM01', Date.now()],
     });
     await touchStormActivity(db, 'STORM01');
@@ -68,7 +68,7 @@ describe('db', () => {
     const db = createDb(tempDbUrl());
     await initSchema(db);
     await db.execute({
-      sql: `INSERT INTO storms (admin_key_hash, storm_code, status, created_at) VALUES (?, ?, 'lobby', ?)`,
+      sql: `INSERT INTO storms (admin_key_hash, storm_code, status, created_at, license_json) VALUES (?, ?, 'lobby', ?, '{"id":"anonymous","name":"Anonymous","tier":"anonymous","expiresAt":null,"stormInactivityHours":24}')`,
       args: ['hash123', 'STORM01', Date.now()],
     });
     await db.execute({
@@ -94,7 +94,7 @@ describe('db', () => {
     await initSchema(db);
     const hour = 3600000;
     const add = (hash, code, ageHours, windowHours) => db.execute({
-      sql: `INSERT INTO storms (admin_key_hash, storm_code, status, created_at, last_activity_at, inactivity_hours) VALUES (?, ?, 'lobby', ?, ?, ?)`,
+      sql: `INSERT INTO storms (admin_key_hash, storm_code, status, created_at, last_activity_at, inactivity_hours, license_json) VALUES (?, ?, 'lobby', ?, ?, ?, '{"id":"anonymous","name":"Anonymous","tier":"anonymous","expiresAt":null,"stormInactivityHours":24}')`,
       args: [hash, code, Date.now() - 100 * hour, Date.now() - ageHours * hour, windowHours],
     });
     await add('h1', 'OLD24', 25, 24);
@@ -113,7 +113,7 @@ describe('db', () => {
     const db = createDb(tempDbUrl());
     await initSchema(db);
     await db.execute({
-      sql: `INSERT INTO storms (admin_key_hash, storm_code, status, created_at, last_activity_at, inactivity_hours) VALUES (?, ?, 'lobby', ?, ?, 24)`,
+      sql: `INSERT INTO storms (admin_key_hash, storm_code, status, created_at, last_activity_at, inactivity_hours, license_json) VALUES (?, ?, 'lobby', ?, ?, 24, '{"id":"anonymous","name":"Anonymous","tier":"anonymous","expiresAt":null,"stormInactivityHours":24}')`,
       args: ['hx', 'EXPIRD', Date.now(), Date.now() - 30 * 3600000],
     });
     await db.execute({
@@ -134,10 +134,11 @@ describe('db', () => {
       storm_code TEXT UNIQUE,
       status TEXT NOT NULL DEFAULT 'lobby',
       current_question_id INTEGER,
-      created_at INTEGER NOT NULL
+      created_at INTEGER NOT NULL,
+      license_json TEXT
     )`);
     await db.execute({
-      sql: `INSERT INTO storms (admin_key_hash, storm_code, status, created_at) VALUES (?, ?, 'lobby', ?)`,
+      sql: `INSERT INTO storms (admin_key_hash, storm_code, status, created_at, license_json) VALUES (?, ?, 'lobby', ?, '{"id":"anonymous","name":"Anonymous","tier":"anonymous","expiresAt":null,"stormInactivityHours":24}')`,
       args: ['hash123', 'STORM01', Date.now()],
     });
 
@@ -158,7 +159,7 @@ describe('db', () => {
     await initSchema(createDb(url));
     expect(execute).not.toHaveBeenCalled();
     // and the tables really are there for later requests
-    await second.execute({ sql: `INSERT INTO storms (admin_key_hash, storm_code, status, created_at) VALUES (?, ?, 'lobby', ?)`, args: ['h', 'CACHE1', Date.now()] });
+    await second.execute({ sql: `INSERT INTO storms (admin_key_hash, storm_code, status, created_at, license_json) VALUES (?, ?, 'lobby', ?, '{"id":"anonymous","name":"Anonymous","tier":"anonymous","expiresAt":null,"stormInactivityHours":24}')`, args: ['h', 'CACHE1', Date.now()] });
     expect((await getStormByCode(second, 'CACHE1')).storm_code).toBe('CACHE1');
   });
 
@@ -170,6 +171,19 @@ describe('db', () => {
     const runB = vi.spyOn(b, 'execute');
     await Promise.all([initSchema(a), initSchema(b)]);
     expect(runA.mock.calls.length > 0 && runB.mock.calls.length > 0).toBe(false);
+  });
+
+  it('treats a storm with no stored license as expired: removed when looked up, and by the sweep', async () => {
+    const db = createDb(tempDbUrl());
+    await initSchema(db);
+    const insert = (code) =>
+      db.execute({ sql: `INSERT INTO storms (admin_key_hash, storm_code, status, created_at) VALUES (?, ?, 'lobby', ?)`, args: [`h-${code}`, code, Date.now()] });
+    await insert('NOLIC1');
+    await insert('NOLIC2');
+    expect(await getStormByCode(db, 'NOLIC1')).toBeNull();
+    expect((await db.execute({ sql: 'SELECT COUNT(*) AS n FROM storms WHERE storm_code = ?', args: ['NOLIC1'] })).rows[0].n).toBe(0);
+    expect(await sweepExpiredStorms(db)).toBe(1);
+    expect((await db.execute('SELECT COUNT(*) AS n FROM storms')).rows[0].n).toBe(0);
   });
 
   it('keeps separate databases separate', async () => {
@@ -189,10 +203,11 @@ describe('db', () => {
       status TEXT NOT NULL DEFAULT 'lobby',
       current_question_id INTEGER,
       created_at INTEGER NOT NULL,
-      license_id TEXT
+      license_id TEXT,
+      license_json TEXT
     )`);
-    await db.execute({ sql: `INSERT INTO storms (admin_key_hash, storm_code, status, created_at, license_id) VALUES ('h1', 'OLDANO', 'lobby', ?, NULL)`, args: [Date.now()] });
-    await db.execute({ sql: `INSERT INTO storms (admin_key_hash, storm_code, status, created_at, license_id) VALUES ('h2', 'OLDLIC', 'lobby', ?, 'acme')`, args: [Date.now()] });
+    await db.execute({ sql: `INSERT INTO storms (admin_key_hash, storm_code, status, created_at, license_id, license_json) VALUES ('h1', 'OLDANO', 'lobby', ?, NULL, '{"id":"anonymous","name":"Anonymous","tier":"anonymous","expiresAt":null,"stormInactivityHours":24}')`, args: [Date.now()] });
+    await db.execute({ sql: `INSERT INTO storms (admin_key_hash, storm_code, status, created_at, license_id, license_json) VALUES ('h2', 'OLDLIC', 'lobby', ?, 'acme', '{"id":"anonymous","name":"Anonymous","tier":"anonymous","expiresAt":null,"stormInactivityHours":24}')`, args: [Date.now()] });
     await initSchema(createDb(url));
     expect((await getStormByCode(createDb(url), 'OLDANO')).created_by_license_id).toBe('anonymous');
     expect((await getStormByCode(createDb(url), 'OLDLIC')).created_by_license_id).toBe('acme');

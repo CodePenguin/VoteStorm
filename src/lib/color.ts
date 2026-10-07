@@ -15,23 +15,67 @@ export function luminance(hex: string): number {
   return 0.2126 * channel(0) + 0.7152 * channel(1) + 0.0722 * channel(2);
 }
 
-/** Above this, dark text has more contrast than white text. */
-const LIGHT_BACKGROUND = 0.179;
+/** WCAG contrast ratio between two colours, 1 (none) to 21 (black on white). */
+export function contrastRatio(a: string, b: string): number {
+  const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+  return (hi + 0.05) / (lo + 0.05);
+}
 
-const LIGHT = {
-  '--text': '#0f172a', '--text-muted': '#475569', '--accent': '#2563eb', '--accent-contrast': '#ffffff', '--accent-soft': '#dbe7ff',
-  '--success': '#15803d', '--success-soft': '#e7f6ec', '--warn': '#b45309', '--danger': '#b91c1c',
-  '--surface': 'color-mix(in srgb, #ffffff 55%, var(--bg))', '--surface-2': 'color-mix(in srgb, #000000 6%, var(--bg))', '--border': 'color-mix(in srgb, #000000 16%, var(--bg))',
+/** `share` of `a` blended into `b`, as `#rrggbb`. */
+function mix(a: string, b: string, share: number): string {
+  const channel = (i: number) => {
+    const x = parseInt(a.slice(1 + i * 2, 3 + i * 2), 16);
+    const y = parseInt(b.slice(1 + i * 2, 3 + i * 2), 16);
+    return Math.round(x * share + y * (1 - share)).toString(16).padStart(2, '0');
+  };
+  return `#${channel(0)}${channel(1)}${channel(2)}`;
+}
+
+const INK = '#0f172a';
+const PAPER = '#f8fafc';
+const READABLE = 4.5;
+
+// Status colours come in pairs (text on its own soft background), so they stay readable whatever the page background is.
+const ON_LIGHT = {
+  '--success': '#14703a', '--success-soft': '#e7f6ec', '--warn': '#a24b06', '--warn-soft': '#fef3e2', '--danger': '#b91c1c', '--danger-soft': '#fdeaea',
 };
-const DARK = {
-  '--text': '#f8fafc', '--text-muted': '#cbd5e1', '--accent': '#5b8cff', '--accent-contrast': '#0b1120', '--accent-soft': '#1b2c52',
-  '--success': '#4ade80', '--success-soft': '#10301d', '--warn': '#fbbf24', '--danger': '#f87171',
-  '--surface': 'color-mix(in srgb, #ffffff 8%, var(--bg))', '--surface-2': 'color-mix(in srgb, #ffffff 14%, var(--bg))', '--border': 'color-mix(in srgb, #ffffff 22%, var(--bg))',
+const ON_DARK = {
+  '--success': '#4ade80', '--success-soft': '#10301d', '--warn': '#fbbf24', '--warn-soft': '#33260c', '--danger': '#f87171', '--danger-soft': '#3a1717',
 };
 
-/** The theme variables for a results screen with this background: text, bars and borders flip light or dark so it stays readable. */
+/**
+ * The theme variables for a results screen with this background. Text is whichever of dark or light reads better, and
+ * the muted text, accent, surfaces and borders are worked out from the real background so every colour stays readable,
+ * including mid-tones where neither black nor white is comfortable.
+ */
 export function resultsTheme(hex: string | null | undefined): Record<string, string> {
-  const color = hex ? parseHexColor(hex) : null;
-  if (!color) return {};
-  return { '--bg': color, ...(luminance(color) > LIGHT_BACKGROUND ? LIGHT : DARK) };
+  const bg = hex ? parseHexColor(hex) : null;
+  if (!bg) return {};
+
+  // The softer ink and paper first; pure black or white only where those fall short (the grey middle of the range).
+  let darkText = contrastRatio(INK, bg) >= contrastRatio(PAPER, bg);
+  let text = darkText ? INK : PAPER;
+  if (contrastRatio(text, bg) < READABLE) {
+    darkText = contrastRatio('#000000', bg) >= contrastRatio('#ffffff', bg);
+    text = darkText ? '#000000' : '#ffffff';
+  }
+
+  let muted = mix(text, bg, 0.78);
+  if (contrastRatio(muted, bg) < READABLE) muted = text;
+
+  const accent = (darkText ? ['#2563eb', '#1d4ed8'] : ['#5b8cff', '#7aa2ff']).find((c) => contrastRatio(c, bg) >= READABLE) ?? text;
+  const accentContrast = contrastRatio(INK, accent) >= contrastRatio('#ffffff', accent) ? INK : '#ffffff';
+
+  return {
+    '--bg': bg,
+    '--text': text,
+    '--text-muted': muted,
+    '--accent': accent,
+    '--accent-contrast': accentContrast,
+    '--accent-soft': mix(accent, bg, 0.16),
+    '--surface': darkText ? mix('#ffffff', bg, 0.55) : mix('#ffffff', bg, 0.08),
+    '--surface-2': darkText ? mix('#000000', bg, 0.06) : mix('#ffffff', bg, 0.14),
+    '--border': darkText ? mix('#000000', bg, 0.16) : mix('#ffffff', bg, 0.22),
+    ...(darkText ? ON_LIGHT : ON_DARK),
+  };
 }

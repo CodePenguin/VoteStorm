@@ -24,7 +24,7 @@ describe('storm code collisions', () => {
     await initSchema(db);
     // Another storm already holds the short code that takenKey would produce.
     await db.execute({
-      sql: `INSERT INTO storms (admin_key_hash, storm_code, status, created_at, last_activity_at) VALUES (?, ?, 'lobby', ?, ?)`,
+      sql: `INSERT INTO storms (admin_key_hash, storm_code, status, created_at, last_activity_at, license_json) VALUES (?, ?, 'lobby', ?, ?, '{"id":"anonymous","name":"Anonymous","tier":"anonymous","expiresAt":null,"stormInactivityHours":24}')`,
       args: ['someone-elses-hash', deriveStormCode(takenKey), Date.now(), Date.now()],
     });
     generateAdminKey.mockReset();

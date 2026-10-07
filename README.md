@@ -13,7 +13,7 @@ VoteStorm is designed to give organizations and individuals control over their o
 - **Presenter** creates a Storm, adds questions, and runs the session from one page. Edit mode is for setup; Present mode keeps only what you need while presenting.
 - **Audience** joins from any device with one link or QR code. Votes are anonymous, and people can change their answer while a question is live.
 - **Question types:** single choice, multiple answers, and rating scales. A question can have a correct answer that is revealed on demand.
-- **Live results** on a big-screen page: a bar chart or a donut chart, both updating as votes arrive, a join screen with a live connected count, a background colour you can match to your slides, and the option to hide results until everyone has answered. Presenters can lock voting or run a countdown timer on the live question.
+- **Live results** on a big-screen page: a bar chart or a donut chart, both updating as votes arrive, a join screen with a live connected count, a background colour you can match to your slides, and the option to hide results until everyone has answered. Presenters can lock voting or run a countdown timer on the live question, and duplicate a Storm to reuse its questions.
 - **Slides:** each question has its own results link that can be embedded in a slide deck. Opening it makes that question live (a closed Storm is never reopened).
 - **Closed Storms** show every question with its final results as a swipeable view.
 
@@ -115,7 +115,7 @@ Never commit `.env` or your keys. Without `TURSO_DATABASE_URL` a hosted deployme
 
 ## Abuse protection
 
-Requests that strangers can send are rate limited per address (a hash of it is stored, never the address itself): creating Storms (20 per hour), voting (2,000 per minute per address and 30 per minute per device), adding questions (120 per minute) and real-time tokens (600 per minute). The limits are deliberately generous because a whole audience can share one public address; scale them with `RATE_LIMIT_SCALE`. Question text and options have length limits, and real-time access is only given to Storms that exist.
+Requests that strangers can send are rate limited per address (a hash of it is stored, never the address itself): creating or duplicating Storms (20 per hour), voting (2,000 per minute per address and 30 per minute per device), adding questions (120 per minute) and real-time tokens (600 per minute). The limits are deliberately generous because a whole audience can share one public address; scale them with `RATE_LIMIT_SCALE`. Question text and options have length limits, and real-time access is only given to Storms that exist.
 
 ## Licensing
 

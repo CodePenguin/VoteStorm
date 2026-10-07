@@ -92,6 +92,12 @@ async function createStorm() {
   }
 }
 
+async function openCopy(newKey: string) {
+  await router.push(`/presenter/${newKey}`);
+  setTab('questions');
+  await init();
+}
+
 async function init() {
   if (!adminKey.value) return;
   try {
@@ -150,6 +156,7 @@ onBeforeUnmount(() => {
     </div>
 
     <main class="container presenter-main">
+      <h1 class="sr-only">Presenter</h1>
       <div v-if="store.error.value" class="alert error" style="margin-bottom: 16px">Couldn't complete that: {{ store.error.value }}</div>
 
       <div v-if="!adminKey" class="card empty">
@@ -191,7 +198,7 @@ onBeforeUnmount(() => {
           </div>
 
           <div v-show="tab === 'storm'" role="tabpanel">
-            <ControlTab :store="store" @deleted="router.push('/presenter')" />
+            <ControlTab :store="store" @deleted="router.push('/presenter')" @duplicated="openCopy" />
           </div>
         </div>
       </div>

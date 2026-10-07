@@ -14,7 +14,7 @@ export class ApiError extends Error {
 }
 
 // Only the presenter-side functions get the license; the audience never needs it.
-const LICENSED_PATHS = ['create-storm', 'admin-storm', 'admin-questions', 'license-status'];
+const LICENSED_PATHS = ['create-storm', 'duplicate-storm', 'admin-storm', 'admin-questions', 'license-status'];
 const usesLicense = (path: string) => LICENSED_PATHS.some((p) => path === p || path.startsWith(p + '?'));
 
 export type ApiOptions = RequestInit & {

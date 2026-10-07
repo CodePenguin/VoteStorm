@@ -4,14 +4,14 @@
   --surface-2: #f1f4f9;
   --border: #e2e8f0;
   --text: #0f172a;
-  --text-muted: #64748b;
+  --text-muted: #5b6b82;
   --accent: #2563eb;
   --accent-hover: #1d4ed8;
   --accent-soft: #eaf1ff;
   --accent-contrast: #ffffff;
-  --success: #15803d;
+  --success: #14703a;
   --success-soft: #e7f6ec;
-  --warn: #b45309;
+  --warn: #a24b06;
   --warn-soft: #fef3e2;
   --danger: #b91c1c;
   --danger-soft: #fdeaea;
@@ -31,7 +31,7 @@
     --text-muted: #93a1bd;
     --accent: #5b8cff;
     --accent-hover: #7aa0ff;
-    --accent-soft: #1b2c52;
+    --accent-soft: #182848;
     --accent-contrast: #0b1120;
     --success: #4ade80;
     --success-soft: #10301d;
@@ -260,3 +260,5 @@ a:hover { text-decoration: underline; }
 .attribution a { color: inherit; text-decoration: underline; }
 .attribution a:hover { color: var(--text); }
 .app-footer { padding: 24px 16px 28px; }
+
+.sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }

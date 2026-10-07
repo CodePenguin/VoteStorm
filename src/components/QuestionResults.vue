@@ -15,6 +15,10 @@ const visible = computed(() => (hasCounts(props.tally) ? props.tally : { counts:
 const options = computed(() => props.question.options ?? []);
 const isCorrect = (i: number) => (props.question.correct ?? []).includes(i);
 const segments = computed(() => donutSegments(options.value.map((_, i) => countFor(visible.value, i))));
+const donutLabel = computed(() => {
+  const parts = options.value.map((opt, i) => `${opt}: ${countFor(visible.value, i)} (${pctFor(visible.value, i)}%)`);
+  return `Donut chart of responses. ${parts.join(', ')}`;
+});
 const average = computed(() => ('average' in visible.value ? visible.value.average : null));
 </script>
 
@@ -27,7 +31,7 @@ const average = computed(() => ('average' in visible.value ? visible.value.avera
 
     <template v-else-if="question.type === 'choice' && question.display === 'donut'">
       <div class="donut-wrap">
-        <div class="donut" role="img" aria-label="Donut chart of responses">
+        <div class="donut" role="img" :aria-label="donutLabel">
           <svg viewBox="0 0 42 42">
             <circle class="donut-ring" cx="21" cy="21" r="15.915" />
             <circle

@@ -19,7 +19,7 @@ describe('ably-token function', () => {
     const db = createDb();
     await initSchema(db);
     await db.execute({
-      sql: `INSERT INTO storms (admin_key_hash, storm_code, status, created_at) VALUES (?, ?, 'lobby', ?)`,
+      sql: `INSERT INTO storms (admin_key_hash, storm_code, status, created_at, license_json) VALUES (?, ?, 'lobby', ?, '{"id":"anonymous","name":"Anonymous","tier":"anonymous","expiresAt":null,"stormInactivityHours":24}')`,
       args: ['hash1', 'STORM01', Date.now()],
     });
     createTokenRequest.mockClear();

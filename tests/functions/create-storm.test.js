@@ -44,7 +44,7 @@ describe('create-storm function', () => {
     await initSchema(db);
 
     await db.execute({
-      sql: `INSERT INTO storms (admin_key_hash, storm_code, status, created_at, last_activity_at) VALUES (?, ?, 'lobby', ?, ?)`,
+      sql: `INSERT INTO storms (admin_key_hash, storm_code, status, created_at, last_activity_at, license_json) VALUES (?, ?, 'lobby', ?, ?, '{"id":"anonymous","name":"Anonymous","tier":"anonymous","expiresAt":null,"stormInactivityHours":24}')`,
       args: ['stale-hash', 'STALE1', Date.now(), Date.now() - 25 * 3600000],
     });
 
@@ -59,7 +59,7 @@ describe('create-storm function', () => {
     await initSchema(db);
 
     await db.execute({
-      sql: `INSERT INTO storms (admin_key_hash, storm_code, status, created_at, last_activity_at) VALUES (?, ?, 'lobby', ?, ?)`,
+      sql: `INSERT INTO storms (admin_key_hash, storm_code, status, created_at, last_activity_at, license_json) VALUES (?, ?, 'lobby', ?, ?, '{"id":"anonymous","name":"Anonymous","tier":"anonymous","expiresAt":null,"stormInactivityHours":24}')`,
       args: ['fresh-hash', 'FRESH1', Date.now(), Date.now() - 3600000],
     });
 

@@ -117,6 +117,18 @@ export function usePresenter(adminKey: Ref<string>, options: PresenterOptions = 
     return act(() => api('admin-storm', { method: 'DELETE', body: JSON.stringify({ adminKey: adminKey.value }) }), false);
   }
 
+  /** Copies this Storm's questions into a new Storm. Returns the new admin key, or null (with the error shown) if it could not. */
+  async function duplicateStorm(): Promise<string | null> {
+    try {
+      const data = await api<{ adminKey: string }>('duplicate-storm', { method: 'POST', body: JSON.stringify({ adminKey: adminKey.value }) });
+      error.value = null;
+      return data.adminKey;
+    } catch (e) {
+      error.value = message(e);
+      return null;
+    }
+  }
+
   async function setConnect(show: boolean) {
     if (await act(() => patchStorm({ showConnect: show }), false)) showConnect.value = show;
   }
@@ -147,7 +159,7 @@ export function usePresenter(adminKey: Ref<string>, options: PresenterOptions = 
   return {
     storm, questions, showConnect, resultsBackground, resultsKey, license, error, copiedQuestion,
     currentQ, currentIndex,
-    load, safeLoad, onTally, canStep, stepQuestion, activate, swap, saveQuestion, deleteStorm, setConnect, setResultsBackground, lockVoting, startTimer, addTime, copyQuestionLink, questionLink,
+    load, safeLoad, onTally, canStep, stepQuestion, activate, swap, saveQuestion, deleteStorm, duplicateStorm, setConnect, setResultsBackground, lockVoting, startTimer, addTime, copyQuestionLink, questionLink,
     setQuestionFlag: (flags: Record<string, unknown>) => act(() => patchStorm(flags)),
     resetQuestion: (questionId: number) => act(() => patchQuestion({ questionId, action: 'reset' })),
     resetStorm: () => act(() => patchStorm({ action: 'reset' })),

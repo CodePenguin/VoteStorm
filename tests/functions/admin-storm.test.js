@@ -25,7 +25,7 @@ describe('admin-storm function', () => {
     adminKey = generateAdminKey();
     stormCode = deriveStormCode(adminKey);
     await db.execute({
-      sql: `INSERT INTO storms (admin_key_hash, storm_code, status, created_at) VALUES (?, ?, 'lobby', ?)`,
+      sql: `INSERT INTO storms (admin_key_hash, storm_code, status, created_at, license_json) VALUES (?, ?, 'lobby', ?, '{"id":"anonymous","name":"Anonymous","tier":"anonymous","expiresAt":null,"stormInactivityHours":24}')`,
       args: [hashAdminKey(adminKey), stormCode, Date.now()],
     });
     const createRes = await questionsHandler({
@@ -122,7 +122,7 @@ describe('admin-storm function', () => {
     const otherAdminKey = generateAdminKey();
     const otherStormCode = deriveStormCode(otherAdminKey);
     await db.execute({
-      sql: `INSERT INTO storms (admin_key_hash, storm_code, status, created_at) VALUES (?, ?, 'lobby', ?)`,
+      sql: `INSERT INTO storms (admin_key_hash, storm_code, status, created_at, license_json) VALUES (?, ?, 'lobby', ?, '{"id":"anonymous","name":"Anonymous","tier":"anonymous","expiresAt":null,"stormInactivityHours":24}')`,
       args: [hashAdminKey(otherAdminKey), otherStormCode, Date.now()],
     });
     const otherCreateRes = await questionsHandler({

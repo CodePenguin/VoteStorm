@@ -36,6 +36,7 @@ const apiMock = vi.fn(async (path: string, options: RequestInit = {}) => {
     data.questions.find((q) => q.id === body.questionId)!.results_hidden = body.resultsHidden ? 1 : 0;
   }
   if (path === 'create-storm') return { adminKey: 'NEWKEY', stormCode: 'NEW001' };
+  if (path === 'duplicate-storm') return { adminKey: 'COPYKEY', stormCode: 'COPY01' };
   return { ok: true };
 });
 vi.mock('@/api', () => ({ api: (...a: [string, RequestInit?]) => apiMock(...a), getDeviceId: () => 'd', ApiError: FakeApiError }));
@@ -353,6 +354,32 @@ describe('PresenterView', () => {
       await flushPromises();
       expect(patchCalls('admin-storm')).toEqual([{ adminKey: 'ADMINKEY', questionId: 1, votingLocked: false }]);
     });
+  });
+
+  it('duplicates the Storm from the Control tab and opens the copy on its Questions tab', async () => {
+    const { wrapper, router } = await mountPresenter();
+    await wrapper.findAll('.tab')[1].trigger('click');
+    await btn(wrapper, 'Duplicate Storm').trigger('click');
+    await flushPromises();
+    const call = calls.find((c) => c.path === 'duplicate-storm')!;
+    expect(call.method).toBe('POST');
+    expect(call.body).toEqual({ adminKey: 'ADMINKEY' });
+    expect(router.currentRoute.value.fullPath).toContain('/presenter/COPYKEY');
+    expect(calls.some((c) => c.path === 'admin-storm?adminKey=COPYKEY')).toBe(true);
+    expect(wrapper.find('.tab.on').text()).toContain('Questions');
+  });
+
+  it('shows why a Storm could not be duplicated and stays on the original', async () => {
+    const { wrapper, router } = await mountPresenter();
+    await wrapper.findAll('.tab')[1].trigger('click');
+    apiMock.mockImplementationOnce(async (path: string, options: RequestInit = {}) => {
+      calls.push({ path, body: options.body ? JSON.parse(options.body as string) : undefined, method: options.method });
+      throw new FakeApiError('Your license allows 1 active Storm. Delete or let one expire first.', 403);
+    });
+    await btn(wrapper, 'Duplicate Storm').trigger('click');
+    await flushPromises();
+    expect(wrapper.find('.alert.error').text()).toContain('Your license allows 1 active Storm');
+    expect(router.currentRoute.value.fullPath).toContain('/presenter/ADMINKEY');
   });
 
   it('shows the license in effect, with its limits, on the Control tab', async () => {

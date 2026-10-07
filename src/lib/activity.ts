@@ -28,6 +28,8 @@ export function describeActivity(path: string, method: string, rawBody?: unknown
   switch (name) {
     case 'vote':
       return { working: 'Submitting your vote\u2026', done: 'Vote submitted' };
+    case 'duplicate-storm':
+      return { working: 'Duplicating Storm\u2026', done: 'Storm duplicated' };
     case 'create-storm':
       return { working: 'Creating your Storm\u2026', done: 'Storm created' };
     case 'admin-questions':

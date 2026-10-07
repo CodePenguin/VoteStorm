@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref } from 'vue';
+import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
 import QrCode from './QrCode.vue';
 import { copyText } from '@/composables/useClipboard';
 
@@ -16,16 +16,48 @@ async function copy() {
   }
 }
 
+const dialog = ref<HTMLElement | null>(null);
+let opener: HTMLElement | null = null;
+
+const focusable = () =>
+  Array.from(dialog.value?.querySelectorAll<HTMLElement>('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])') ?? []).filter((el) => !el.hasAttribute('disabled'));
+
 function onKey(e: KeyboardEvent) {
-  if (e.key === 'Escape') emit('close');
+  if (e.key === 'Escape') {
+    emit('close');
+    return;
+  }
+  if (e.key !== 'Tab') return;
+  // Keep Tab inside the dialog while it is open.
+  const items = focusable();
+  if (items.length === 0) return;
+  const first = items[0];
+  const last = items[items.length - 1];
+  const active = document.activeElement;
+  if (e.shiftKey && (active === first || !dialog.value?.contains(active))) {
+    e.preventDefault();
+    last.focus();
+  } else if (!e.shiftKey && (active === last || !dialog.value?.contains(active))) {
+    e.preventDefault();
+    first.focus();
+  }
 }
-onMounted(() => window.addEventListener('keydown', onKey));
-onBeforeUnmount(() => window.removeEventListener('keydown', onKey));
+
+onMounted(async () => {
+  opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  window.addEventListener('keydown', onKey);
+  await nextTick();
+  focusable()[0]?.focus();
+});
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onKey);
+  opener?.focus();
+});
 </script>
 
 <template>
   <div class="modal-backdrop" @click.self="emit('close')">
-    <div class="card modal" role="dialog" aria-modal="true" aria-label="Share this poll">
+    <div ref="dialog" class="card modal" role="dialog" aria-modal="true" aria-label="Share this poll">
       <h2>Invite others</h2>
       <p class="muted">Scan to open this poll</p>
       <QrCode :value="url" label="QR code linking to this poll" />

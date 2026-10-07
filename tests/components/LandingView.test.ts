@@ -30,7 +30,7 @@ describe('LandingView', () => {
 
   it('explains the three steps', async () => {
     const { wrapper } = await mountAt('/');
-    expect(wrapper.findAll('.step').map((s) => s.find('h3').text())).toEqual(['Create', 'Share', 'Watch live']);
+    expect(wrapper.findAll('.step').map((s) => s.find('h2').text())).toEqual(['Create', 'Share', 'Watch live']);
   });
 
   it('creates a storm in one click and opens the presenter', async () => {
@@ -67,6 +67,13 @@ describe('App shell', () => {
   it('shows the Code Penguin footer on ordinary pages', async () => {
     const { wrapper } = await mountAt('/', App);
     expect(wrapper.find('.app-footer a').attributes('href')).toBe('https://codepenguin.com');
+    expect(wrapper.findAll('.app-footer a').map((a) => a.attributes('href'))).toEqual(['https://codepenguin.com', '/license', '/privacy']);
+  });
+
+  it('serves the privacy page', async () => {
+    const { wrapper } = await mountAt('/privacy', App);
+    expect(wrapper.find('h1').text()).toBe('Privacy');
+    expect(wrapper.text()).toContain('sets no cookies');
   });
 
   it('leaves the footer to the projector results screen', async () => {

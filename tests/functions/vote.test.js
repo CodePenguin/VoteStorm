@@ -27,7 +27,7 @@ describe('vote function', () => {
     const db = createDb();
     await initSchema(db);
     await db.execute({
-      sql: `INSERT INTO storms (admin_key_hash, storm_code, status, current_question_id, created_at) VALUES (?, ?, 'active', 1, ?)`,
+      sql: `INSERT INTO storms (admin_key_hash, storm_code, status, current_question_id, created_at, license_json) VALUES (?, ?, 'active', 1, ?, '{"id":"anonymous","name":"Anonymous","tier":"anonymous","expiresAt":null,"stormInactivityHours":24}')`,
       args: ['hash1', 'STORM01', Date.now()],
     });
     await db.execute({

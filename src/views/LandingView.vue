@@ -46,7 +46,7 @@ const steps = [
       <div class="steps">
         <div v-for="(step, i) in steps" :key="step.title" class="card step">
           <div class="num">{{ i + 1 }}</div>
-          <h3>{{ step.title }}</h3>
+          <h2>{{ step.title }}</h2>
           <p>{{ step.text }}</p>
         </div>
       </div>
@@ -65,7 +65,7 @@ const steps = [
 .landing-error { margin: 20px auto 0; max-width: 420px; }
 .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 56px; text-align: left; }
 .step .num { width: 28px; height: 28px; border-radius: 50%; background: var(--accent-soft); color: var(--accent); display: grid; place-items: center; font-weight: 700; font-size: .85rem; margin-bottom: 10px; }
-.step h3 { font-size: 1rem; margin-bottom: 4px; }
+.step h2 { font-size: 1rem; margin-bottom: 4px; }
 .step p { font-size: .9rem; color: var(--text-muted); }
 @media (max-width: 640px) { .steps { grid-template-columns: 1fr; } }
 </style>

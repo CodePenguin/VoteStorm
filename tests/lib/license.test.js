@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest';
 import { SignJWT, exportJWK, generateKeyPair } from 'jose';
 import {
-  ConfigError, LicenseError, anonymousLicense, bearerToken, describeLicense, legacyStormLicense, normalizeLimits, resolveLicense, stormLicense, validateLicenseJwt,
+  ConfigError, LicenseError, anonymousLicense, bearerToken, describeLicense, normalizeLimits, resolveLicense, stormLicense, validateLicenseJwt,
 } from '../../lib/license.js';
 import { bearer, makeIssuer, useIssuer } from '../helpers/issuer.js';
 
@@ -175,10 +175,7 @@ describe('anonymous tier', () => {
     expect(second).toBe(first);
   });
 
-  it('gives a storm with no stored license (created before licensing existed) the old 24-hour default, and a stored license the storm remembers', () => {
-    expect(stormLicense({})).toEqual(legacyStormLicense());
-    expect(stormLicense({ license_json: 'not json' })).toEqual(legacyStormLicense());
-    expect(legacyStormLicense().stormInactivityHours).toBe(24);
+  it('gives a storm the license it stored', () => {
     expect(stormLicense({ license_json: JSON.stringify({ id: 'x', tier: 'licensed', maxAudiencePerStorm: 3, stormInactivityHours: 48 }) })).toMatchObject({ tier: 'licensed', maxAudiencePerStorm: 3, stormInactivityHours: 48 });
   });
 });

@@ -15,7 +15,7 @@ describe('get-question-results function', () => {
     await initSchema(db);
     for (const code of ['STORM01', 'STORM02']) {
       await db.execute({
-        sql: `INSERT INTO storms (admin_key_hash, storm_code, status, created_at) VALUES (?, ?, 'active', ?)`,
+        sql: `INSERT INTO storms (admin_key_hash, storm_code, status, created_at, license_json) VALUES (?, ?, 'active', ?, '{"id":"anonymous","name":"Anonymous","tier":"anonymous","expiresAt":null,"stormInactivityHours":24}')`,
         args: ['hash-' + code, code, Date.now()],
       });
     }

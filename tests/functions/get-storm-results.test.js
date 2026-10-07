@@ -18,7 +18,7 @@ describe('get-storm-results function', () => {
     const adminKey = generateAdminKey();
     stormCode = deriveStormCode(adminKey);
     await db.execute({
-      sql: `INSERT INTO storms (admin_key_hash, storm_code, status, created_at) VALUES (?, ?, 'closed', ?)`,
+      sql: `INSERT INTO storms (admin_key_hash, storm_code, status, created_at, license_json) VALUES (?, ?, 'closed', ?, '{"id":"anonymous","name":"Anonymous","tier":"anonymous","expiresAt":null,"stormInactivityHours":24}')`,
       args: [hashAdminKey(adminKey), stormCode, Date.now()],
     });
     await db.execute({

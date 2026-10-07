@@ -19,6 +19,16 @@ const deviceId = getDeviceId();
 const currentQuestion = ref<Question | null>(null);
 const clock = useVotingClock(() => currentQuestion.value?.votingMsLeft);
 const votingClosed = computed(() => clock.phase.value === 'closed');
+// Read out by screen readers whenever it changes, because the page swaps whole sections rather than editing text in place.
+const announcement = computed(() => {
+  if (loading.value) return '';
+  if (stormClosed.value) return 'This Storm has ended';
+  const q = currentQuestion.value;
+  if (!q) return 'Waiting for the next question';
+  if (votingClosed.value) return 'Voting closed';
+  if (hasVoted.value) return 'Your vote is in';
+  return `Question: ${q.prompt}`;
+});
 const tally = ref<Tally>(normalizeTally(null));
 const stormClosed = ref(false);
 const slides = ref<ClosedQuestion[] | null>(null);
@@ -175,10 +185,11 @@ onBeforeUnmount(() => ably?.close());
 
     <ShareModal v-if="showShare" :url="voteUrl" @close="showShare = false" />
 
+    <p class="sr-only" role="status">{{ announcement }}</p>
     <main class="container narrow vote-main">
       <div v-if="!stormCode" class="card state">
         <div class="icon closed"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9" /><path d="M12 8v5M12 16h.01" /></svg></div>
-        <h2>No Storm specified</h2>
+        <h1>No Storm specified</h1>
         <p>Check the link you were given and try again.</p>
       </div>
 
@@ -193,7 +204,7 @@ onBeforeUnmount(() => ably?.close());
 
       <div v-else-if="!stormClosed && !currentQuestion" class="card state">
         <div class="icon"><svg class="pulse" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg></div>
-        <h2>Waiting for the next question</h2>
+        <h1>Waiting for the next question</h1>
         <p>This page updates automatically &mdash; no need to refresh.</p>
       </div>
 
@@ -201,7 +212,7 @@ onBeforeUnmount(() => ably?.close());
         <div class="card state">
           <div v-if="hasVoted" class="icon ok"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5" /></svg></div>
           <div v-else class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="9" rx="2" /><path d="M8 11V8a4 4 0 0 1 8 0v3" /></svg></div>
-          <h2>{{ votingClosed ? 'Voting closed' : 'Thanks, your vote is in' }}</h2>
+          <h1>{{ votingClosed ? 'Voting closed' : 'Thanks, your vote is in' }}</h1>
           <p v-if="votingClosed" class="muted">{{ hasVoted ? 'Your vote is in.' : 'This question is no longer taking votes.' }}</p>
           <p v-else-if="clock.phase.value === 'running'" class="voting-clock" role="timer">{{ clock.label.value }} left to change your vote</p>
           <p v-if="currentQuestion.correct" class="correct-note"><strong>Correct answer:</strong> {{ correctLabel }}</p>
@@ -221,7 +232,7 @@ onBeforeUnmount(() => ably?.close());
         <p v-if="currentQuestion.correct" class="correct-note" style="margin-bottom: 12px"><strong>Correct answer:</strong> {{ correctLabel }}</p>
 
         <div v-if="currentQuestion.type === 'choice' && !currentQuestion.multi" class="choices">
-          <button v-for="(opt, i) in options" :key="i" class="choice" :class="{ picked: myVote === i }" :disabled="submitting" @click="vote(i)">{{ opt }}</button>
+          <button v-for="(opt, i) in options" :key="i" class="choice" :class="{ picked: myVote === i }" :aria-pressed="myVote === i" :disabled="submitting" @click="vote(i)">{{ opt }}</button>
         </div>
 
         <div v-else-if="currentQuestion.type === 'choice'" class="choices">
@@ -239,7 +250,7 @@ onBeforeUnmount(() => ably?.close());
         <div v-else>
           <p class="hint">Pick a number from {{ currentQuestion.scaleMin }} to {{ currentQuestion.scaleMax }}</p>
           <div class="rating-grid">
-            <button v-for="n in ratingValues(currentQuestion)" :key="n" class="rate" :class="{ picked: myVote === n }" :disabled="submitting" @click="vote(n)">{{ n }}</button>
+            <button v-for="n in ratingValues(currentQuestion)" :key="n" class="rate" :class="{ picked: myVote === n }" :aria-pressed="myVote === n" :disabled="submitting" @click="vote(n)">{{ n }}</button>
           </div>
         </div>
       </div>
@@ -285,6 +296,6 @@ onBeforeUnmount(() => ably?.close());
 .state .icon svg { width: 28px; height: 28px; }
 .state .icon.ok { background: var(--success-soft); color: var(--success); }
 .state .icon.closed { background: var(--surface-2); color: var(--text-muted); }
-.state h2 { font-size: 1.3rem; margin-bottom: 6px; }
+.state h1 { font-size: 1.3rem; margin-bottom: 6px; }
 .state p { color: var(--text-muted); }
 </style>

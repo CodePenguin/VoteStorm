@@ -140,7 +140,7 @@ onBeforeUnmount(() => ably?.close());
 
 <template>
   <div class="results-page" :style="theme">
-    <div class="topbar">
+    <header class="topbar">
       <span class="brand">
         <BrandMark />
       </span>
@@ -153,7 +153,7 @@ onBeforeUnmount(() => ably?.close());
           <span>{{ connected ? 'Live' : 'Connecting\u2026' }}</span>
         </span>
       </span>
-    </div>
+    </header>
 
     <main class="results-main">
       <div v-if="loadError" class="alert error">{{ loadError }}</div>
@@ -173,7 +173,7 @@ onBeforeUnmount(() => ably?.close());
       </div>
     </main>
 
-    <div v-show="showConnect && !loadError" class="connect-screen">
+    <section v-show="showConnect && !loadError" class="connect-screen" aria-label="Join this Storm">
       <div class="waiting">
         <QrCode class="join-qr" :value="voteUrl" label="QR code linking to the voting page" />
         <h1 class="join-title">Scan to vote</h1>
@@ -186,7 +186,7 @@ onBeforeUnmount(() => ably?.close());
       <p class="attribution">
         Copyright&nbsp;<a href="https://codepenguin.com" rel="noopener noreferrer" title="David Lambert (Code Penguin)">David&nbsp;Lambert&nbsp;(Code&nbsp;Penguin)</a>
       </p>
-    </div>
+    </section>
 
     <footer class="footer">
       <div class="footer-info">
