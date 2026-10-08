@@ -1,6 +1,8 @@
 import { computed, ref, type Ref } from 'vue';
-import { api, ApiError } from '@/api';
+import { ApiError } from '@/api';
 import { copyText } from '@/composables/useClipboard';
+import { describeSecret, generateAdminSecret } from '@/lib/adminKeys';
+import { signedApi, type AdminSession } from '@/lib/adminRequest';
 import { resultsUrl } from '@/lib/fragment';
 import { renameRemembered } from '@/lib/recentStorms';
 import type { AdminQuestion, AdminStorm, AdminStormData, LicenseSummary, QuestionPayload, Tally, VisibleTally } from '@/shared/types';
@@ -11,7 +13,7 @@ export interface PresenterOptions {
 
 const message = (e: unknown) => (e as Error)?.message || 'Something went wrong';
 
-export function usePresenter(adminKey: Ref<string>, options: PresenterOptions = {}) {
+export function usePresenter(session: Ref<AdminSession>, options: PresenterOptions = {}) {
   const confirmFn = options.confirm ?? ((m: string) => window.confirm(m));
 
   const storm = ref<AdminStorm | null>(null);
@@ -23,19 +25,39 @@ export function usePresenter(adminKey: Ref<string>, options: PresenterOptions = 
   const error = ref<string | null>(null);
   const copiedQuestion = ref<number | null>(null);
 
-  // The admin key goes in a header, never in the URL or the body, so it stays out of logs.
-  const keyed = (): Pick<RequestInit, 'headers'> => ({ headers: { 'x-admin-key': adminKey.value } });
-  const patchStorm = (body: Record<string, unknown>) => api('admin-storm', { method: 'PATCH', ...keyed(), body: JSON.stringify(body) });
-  const patchQuestion = (body: Record<string, unknown>) => api('admin-questions', { method: 'PATCH', ...keyed(), body: JSON.stringify(body) });
+  // Every admin call is signed with the secret; the secret itself is never sent. The function name is signed as given, so it is passed bare.
+  const signed = <T = unknown>(fn: string, init: RequestInit = {}) => signedApi<T>(session.value, fn, init);
+  const patchStorm = (body: Record<string, unknown>) => signed('admin-storm', { method: 'PATCH', body: JSON.stringify(body) });
+  const patchQuestion = (body: Record<string, unknown>) => signed('admin-questions', { method: 'PATCH', body: JSON.stringify(body) });
+
+  // Bumped by reset(), so a load that was started for the previous Storm cannot write its answer over the new one.
+  let generation = 0;
 
   async function load() {
-    const data = await api<AdminStormData>('admin-storm', keyed());
+    const started = generation;
+    const secret = session.value.secret;
+    const data = await signed<AdminStormData>('admin-storm');
+    const key = (await describeSecret(secret)).resultsKey;
+    if (started !== generation) return;
     storm.value = data.storm;
     questions.value = data.questions;
     showConnect.value = !!data.showConnect;
     resultsBackground.value = data.resultsBackground ?? null;
-    resultsKey.value = data.resultsKey;
+    resultsKey.value = key;
     license.value = data.license ?? null;
+  }
+
+  /** Forgets everything shown, for when the link now points at a different Storm (or none). */
+  function reset() {
+    generation++;
+    storm.value = null;
+    questions.value = [];
+    showConnect.value = false;
+    resultsBackground.value = null;
+    resultsKey.value = null;
+    license.value = null;
+    error.value = null;
+    copiedQuestion.value = null;
   }
 
   async function safeLoad() {
@@ -100,7 +122,7 @@ export function usePresenter(adminKey: Ref<string>, options: PresenterOptions = 
   async function saveQuestion(payload: QuestionPayload, editingId: number | null): Promise<boolean> {
     return act(async () => {
       if (editingId === null) {
-        await api('admin-questions', { method: 'POST', ...keyed(), body: JSON.stringify(payload) });
+        await signed('admin-questions', { method: 'POST', body: JSON.stringify(payload) });
         return;
       }
       const send = (clearVotes: boolean) => patchQuestion({ questionId: editingId, edit: { ...payload, clearVotes } });
@@ -115,15 +137,16 @@ export function usePresenter(adminKey: Ref<string>, options: PresenterOptions = 
 
   async function deleteStorm(): Promise<boolean> {
     if (!confirmFn('Delete this Storm? This cannot be undone.')) return false;
-    return act(() => api('admin-storm', { method: 'DELETE', ...keyed() }), false);
+    return act(() => signed('admin-storm', { method: 'DELETE' }), false);
   }
 
-  /** Copies this Storm's questions into a new Storm. Returns the new admin key, or null (with the error shown) if it could not. */
-  async function duplicateStorm(): Promise<string | null> {
+  /** Copies this Storm's questions into a new Storm with its own new secret. Returns the copy's session, or null (with the error shown). */
+  async function duplicateStorm(): Promise<AdminSession | null> {
     try {
-      const data = await api<{ adminKey: string }>('duplicate-storm', { method: 'POST', ...keyed(), body: '{}' });
+      const made = await generateAdminSecret();
+      const data = await signed<{ stormCode: string }>('duplicate-storm', { method: 'POST', body: JSON.stringify({ publicKey: made.publicKey, resultsKeyHash: made.resultsKeyHash }) });
       error.value = null;
-      return data.adminKey;
+      return { stormCode: data.stormCode, secret: made.secret };
     } catch (e) {
       error.value = message(e);
       return null;
@@ -135,7 +158,7 @@ export function usePresenter(adminKey: Ref<string>, options: PresenterOptions = 
     const clean = name.trim();
     if (await act(() => patchStorm({ name: clean }), false)) {
       if (storm.value) storm.value.name = clean || null;
-      renameRemembered(adminKey.value, clean || null);
+      renameRemembered(session.value.stormCode, clean || null);
     }
   }
 
@@ -169,14 +192,14 @@ export function usePresenter(adminKey: Ref<string>, options: PresenterOptions = 
   return {
     storm, questions, showConnect, resultsBackground, resultsKey, license, error, copiedQuestion,
     currentQ, currentIndex,
-    load, safeLoad, onTally, canStep, stepQuestion, activate, swap, saveQuestion, deleteStorm, duplicateStorm, setName, setConnect, setResultsBackground, lockVoting, startTimer, addTime, copyQuestionLink, questionLink,
+    load, reset, safeLoad, onTally, canStep, stepQuestion, activate, swap, saveQuestion, deleteStorm, duplicateStorm, setName, setConnect, setResultsBackground, lockVoting, startTimer, addTime, copyQuestionLink, questionLink,
     setQuestionFlag: (flags: Record<string, unknown>) => act(() => patchStorm(flags)),
     resetQuestion: (questionId: number) => act(() => patchQuestion({ questionId, action: 'reset' })),
     resetStorm: () => act(() => patchStorm({ action: 'reset' })),
     closeStorm: () => act(() => patchStorm({ status: 'closed' })),
     reopenStorm: () => act(() => patchStorm({ status: storm.value?.current_question_id ? 'active' : 'lobby' })),
     deleteQuestion: (questionId: number) =>
-      act(() => api('admin-questions', { method: 'DELETE', ...keyed(), body: JSON.stringify({ questionId }) })),
+      act(() => signed('admin-questions', { method: 'DELETE', body: JSON.stringify({ questionId }) })),
   };
 }
 

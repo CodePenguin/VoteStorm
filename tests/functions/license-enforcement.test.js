@@ -9,6 +9,7 @@ vi.mock('../../lib/realtime.js', () => ({
 }));
 
 import { createDb, initSchema } from '../../lib/db.js';
+import { makeAdmin } from '../helpers/admin.js';
 import { handler as createStorm } from '../../netlify/functions/create-storm.js';
 import { handler as adminStorm } from '../../netlify/functions/admin-storm.js';
 import { handler as adminQuestions } from '../../netlify/functions/admin-questions.js';
@@ -38,17 +39,24 @@ describe('license enforcement', () => {
   });
 
   const create = async (jwt) => {
-    const res = await createStorm({ httpMethod: 'POST', headers: jwt ? bearer(jwt) : {} });
-    return { res, body: JSON.parse(res.body) };
+    const admin = await makeAdmin();
+    const res = await createStorm({
+      httpMethod: 'POST', headers: jwt ? bearer(jwt) : {},
+      body: JSON.stringify({ publicKey: admin.publicKey, resultsKeyHash: admin.resultsKeyHash }),
+    });
+    const body = JSON.parse(res.body);
+    admin.stormCode = body.stormCode ?? null;
+    return { res, body, admin };
   };
-  const addQuestion = (adminKey, jwt, prompt = 'Q') => adminQuestions({
+  const addQuestion = (admin, jwt, prompt = 'Q') => admin.call(adminQuestions, 'admin-questions', {
     httpMethod: 'POST', headers: jwt ? bearer(jwt) : {},
-    body: JSON.stringify({ adminKey, type: 'choice', prompt, options: ['A', 'B'] }),
+    body: JSON.stringify({ type: 'choice', prompt, options: ['A', 'B'] }),
   });
   const stormRow = async (stormCode) => (await createDb().execute({ sql: 'SELECT * FROM storms WHERE storm_code = ?', args: [stormCode] })).rows[0];
-  const activate = (adminKey, questionId) => adminStorm({
-    httpMethod: 'PATCH', headers: {}, body: JSON.stringify({ adminKey, status: 'active', currentQuestionId: questionId }),
+  const activate = (admin, questionId) => admin.call(adminStorm, 'admin-storm', {
+    httpMethod: 'PATCH', body: JSON.stringify({ status: 'active', currentQuestionId: questionId }),
   });
+  const getStorm = (admin, headers = {}) => admin.call(adminStorm, 'admin-storm', { httpMethod: 'GET', headers });
   const castVote = (stormCode, questionId, deviceId, value = 0) => vote({
     httpMethod: 'POST', body: JSON.stringify({ stormCode, questionId, deviceId, value }),
   });
@@ -86,14 +94,14 @@ describe('license enforcement', () => {
 
     it('limits how many storms one license can have, and frees a slot when a storm goes', async () => {
       const jwt = await issuer.sign({ maxActiveStorms: 2 }, { sub: 'limited' });
-      const first = (await create(jwt)).body;
+      const first = await create(jwt);
       await create(jwt);
       const third = await create(jwt);
       expect(third.res.statusCode).toBe(403);
       expect(third.body.code).toBe('storm_limit');
       expect(third.body.error).toContain('2 active Storms');
 
-      await adminStorm({ httpMethod: 'DELETE', headers: bearer(jwt), body: JSON.stringify({ adminKey: first.adminKey }) });
+      await first.admin.call(adminStorm, 'admin-storm', { httpMethod: 'DELETE', headers: bearer(jwt) });
       expect((await create(jwt)).res.statusCode).toBe(200);
 
       const other = await issuer.sign({ maxActiveStorms: 2 }, { sub: 'someone-else' });
@@ -111,7 +119,7 @@ describe('license enforcement', () => {
       expect(third.body.error).toContain('This server is at its limit of 2 active Storms');
       expect(third.body.error).not.toContain('Your license');
 
-      await adminStorm({ httpMethod: 'DELETE', headers: {}, body: JSON.stringify({ adminKey: second.body.adminKey }) });
+      await second.admin.call(adminStorm, 'admin-storm', { httpMethod: 'DELETE' });
       expect((await create()).res.statusCode).toBe(200);
     });
 
@@ -126,9 +134,9 @@ describe('license enforcement', () => {
 
     it('counts a storm against the license that created it, even after another license is presented on it', async () => {
       const mine = await issuer.sign({ maxActiveStorms: 1 }, { sub: 'creator' });
-      const { body } = await create(mine);
+      const { body, admin } = await create(mine);
       const other = await issuer.sign({ stormInactivityHours: 48 }, { sub: 'someone-else' });
-      await adminStorm({ httpMethod: 'GET', headers: { ...bearer(other), 'x-admin-key': body.adminKey } });
+      await getStorm(admin, bearer(other));
       expect((await create(mine)).res.statusCode).toBe(403);
     });
 
@@ -161,9 +169,9 @@ describe('license enforcement', () => {
     });
 
     it('keeps the creator when someone else later presents their license on the storm', async () => {
-      const { body } = await create(await issuer.sign({ name: 'Creator' }, { sub: 'creator-1' }));
+      const { body, admin } = await create(await issuer.sign({ name: 'Creator' }, { sub: 'creator-1' }));
       const other = await issuer.sign({ name: 'Other', stormInactivityHours: 96 }, { sub: 'other-2' });
-      await adminStorm({ httpMethod: 'GET', headers: { ...bearer(other), 'x-admin-key': body.adminKey } });
+      await getStorm(admin, bearer(other));
       const row = await stormRow(body.stormCode);
       expect(row.license_id).toBe('other-2'); // the license the storm runs under now
       expect(row.created_by_license_id).toBe('creator-1'); // who made it
@@ -193,50 +201,50 @@ describe('license enforcement', () => {
   describe('questions per storm', () => {
     it('stops adding questions at the license limit but still allows edits and deletes', async () => {
       const jwt = await issuer.sign({ maxQuestionsPerStorm: 2 });
-      const { body } = await create(jwt);
-      const q1 = JSON.parse((await addQuestion(body.adminKey, jwt, 'one')).body).id;
-      await addQuestion(body.adminKey, jwt, 'two');
-      const third = await addQuestion(body.adminKey, jwt, 'three');
+      const { body, admin } = await create(jwt);
+      const q1 = JSON.parse((await addQuestion(admin, jwt, 'one')).body).id;
+      await addQuestion(admin, jwt, 'two');
+      const third = await addQuestion(admin, jwt, 'three');
       expect(third.statusCode).toBe(403);
       expect(JSON.parse(third.body)).toMatchObject({ code: 'question_limit' });
       expect(JSON.parse(third.body).error).toContain('2 questions');
 
-      const edit = await adminQuestions({
-        httpMethod: 'PATCH', headers: {}, body: JSON.stringify({ adminKey: body.adminKey, questionId: q1, edit: { type: 'choice', prompt: 'renamed', options: ['A', 'B'] } }),
+      const edit = await admin.call(adminQuestions, 'admin-questions', {
+        httpMethod: 'PATCH', body: JSON.stringify({ questionId: q1, edit: { type: 'choice', prompt: 'renamed', options: ['A', 'B'] } }),
       });
       expect(edit.statusCode).toBe(200);
-      await adminQuestions({ httpMethod: 'DELETE', headers: {}, body: JSON.stringify({ adminKey: body.adminKey, questionId: q1 }) });
-      expect((await addQuestion(body.adminKey, jwt, 'again')).statusCode).toBe(200);
+      await admin.call(adminQuestions, 'admin-questions', { httpMethod: 'DELETE', body: JSON.stringify({ questionId: q1 }) });
+      expect((await addQuestion(admin, jwt, 'again')).statusCode).toBe(200);
     });
 
     it('keeps applying the limit when the presenter page does not resend the license (it is stored on the storm)', async () => {
       const jwt = await issuer.sign({ maxQuestionsPerStorm: 1 });
-      const { body } = await create(jwt);
-      expect((await addQuestion(body.adminKey, jwt)).statusCode).toBe(200);
-      expect((await addQuestion(body.adminKey, null)).statusCode).toBe(403);
+      const { body, admin } = await create(jwt);
+      expect((await addQuestion(admin, jwt)).statusCode).toBe(200);
+      expect((await addQuestion(admin, null)).statusCode).toBe(403);
     });
 
     it('takes the anonymous limit from configuration', async () => {
       process.env.ANONYMOUS_LICENSE_JWT = await issuer.sign({ maxQuestionsPerStorm: 1 }, { sub: 'anything' });
-      const { body } = await create();
-      expect((await addQuestion(body.adminKey, null)).statusCode).toBe(200);
-      expect((await addQuestion(body.adminKey, null)).statusCode).toBe(403);
+      const { body, admin } = await create();
+      expect((await addQuestion(admin, null)).statusCode).toBe(200);
+      expect((await addQuestion(admin, null)).statusCode).toBe(403);
     });
 
     it('is unlimited when the license sets no limit', async () => {
-      const { body } = await create(await issuer.sign({ name: 'Open' }));
-      for (let i = 0; i < 6; i++) expect((await addQuestion(body.adminKey, null, `q${i}`)).statusCode).toBe(200);
+      const { body, admin } = await create(await issuer.sign({ name: 'Open' }));
+      for (let i = 0; i < 6; i++) expect((await addQuestion(admin, null, `q${i}`)).statusCode).toBe(200);
     });
   });
 
   describe('audience per storm', () => {
     async function liveStorm(limits) {
       const jwt = await issuer.sign(limits);
-      const { body } = await create(jwt);
-      const q1 = JSON.parse((await addQuestion(body.adminKey, null, 'one')).body).id;
-      const q2 = JSON.parse((await addQuestion(body.adminKey, null, 'two')).body).id;
-      await activate(body.adminKey, q1);
-      return { ...body, q1, q2 };
+      const { body, admin } = await create(jwt);
+      const q1 = JSON.parse((await addQuestion(admin, null, 'one')).body).id;
+      const q2 = JSON.parse((await addQuestion(admin, null, 'two')).body).id;
+      await activate(admin, q1);
+      return { ...body, admin, q1, q2 };
     }
 
     it('lets the first N devices vote and turns the next one away', async () => {
@@ -253,7 +261,7 @@ describe('license enforcement', () => {
       await castVote(storm.stormCode, storm.q1, 'd1');
       await castVote(storm.stormCode, storm.q1, 'd2');
       expect((await castVote(storm.stormCode, storm.q1, 'd1', 1)).statusCode).toBe(200);
-      await activate(storm.adminKey, storm.q2);
+      await activate(storm.admin, storm.q2);
       expect((await castVote(storm.stormCode, storm.q2, 'd2')).statusCode).toBe(200);
       expect((await castVote(storm.stormCode, storm.q2, 'd3')).statusCode).toBe(403);
     });
@@ -266,24 +274,24 @@ describe('license enforcement', () => {
 
   describe('expiry', () => {
     it('lets an anonymous storm lapse after 24 hours of inactivity, and removes it when next opened', async () => {
-      const { body } = await create();
+      const { body, admin } = await create();
       await createDb().execute({ sql: 'UPDATE storms SET last_activity_at = ? WHERE storm_code = ?', args: [Date.now() - 25 * HOUR, body.stormCode] });
-      const res = await adminStorm({ httpMethod: 'GET', headers: { ...{}, 'x-admin-key': body.adminKey } });
+      const res = await getStorm(admin);
       expect(res.statusCode).toBe(401);
       expect(await stormRow(body.stormCode)).toBeUndefined();
     });
 
     it('keeps a licensed storm for as long as its license allows', async () => {
-      const { body } = await create(await issuer.sign({ stormInactivityHours: 168 }));
+      const { body, admin } = await create(await issuer.sign({ stormInactivityHours: 168 }));
       await createDb().execute({ sql: 'UPDATE storms SET last_activity_at = ? WHERE storm_code = ?', args: [Date.now() - 100 * HOUR, body.stormCode] });
-      const res = await adminStorm({ httpMethod: 'GET', headers: { ...{}, 'x-admin-key': body.adminKey } });
+      const res = await getStorm(admin);
       expect(res.statusCode).toBe(200);
     });
 
     it('treats audience votes as activity so a busy storm does not expire', async () => {
-      const { body } = await create();
-      const q = JSON.parse((await addQuestion(body.adminKey, null)).body).id;
-      await activate(body.adminKey, q);
+      const { body, admin } = await create();
+      const q = JSON.parse((await addQuestion(admin, null)).body).id;
+      await activate(admin, q);
       await createDb().execute({ sql: 'UPDATE storms SET last_activity_at = ? WHERE storm_code = ?', args: [Date.now() - 23 * HOUR, body.stormCode] });
       await castVote(body.stormCode, q, 'd1');
       expect(Number((await stormRow(body.stormCode)).last_activity_at)).toBeGreaterThan(Date.now() - 60000);
@@ -299,12 +307,12 @@ describe('license enforcement', () => {
 
   describe('presenting a license later', () => {
     it('reports the license in effect on the presenter page', async () => {
-      const { body } = await create();
-      const anon = JSON.parse((await adminStorm({ httpMethod: 'GET', headers: { ...{}, 'x-admin-key': body.adminKey } })).body);
+      const { body, admin } = await create();
+      const anon = JSON.parse((await getStorm(admin)).body);
       expect(anon.license).toMatchObject({ tier: 'anonymous', limits: { stormInactivityHours: 24 } });
 
       const jwt = await issuer.sign({ name: 'Upgrade', stormInactivityHours: 96, maxAudiencePerStorm: 10 });
-      const upgraded = JSON.parse((await adminStorm({ httpMethod: 'GET', headers: { ...bearer(jwt), 'x-admin-key': body.adminKey } })).body);
+      const upgraded = JSON.parse((await getStorm(admin, bearer(jwt))).body);
       expect(upgraded.license).toMatchObject({ tier: 'licensed', name: 'Upgrade', limits: { stormInactivityHours: 96, maxAudiencePerStorm: 10 } });
       const row = await stormRow(body.stormCode);
       expect(Number(row.inactivity_hours)).toBe(96);
@@ -312,8 +320,8 @@ describe('license enforcement', () => {
     });
 
     it('ignores an invalid license on a presenter page instead of locking the presenter out', async () => {
-      const { body } = await create(await issuer.sign({ stormInactivityHours: 48 }));
-      const res = await adminStorm({ httpMethod: 'GET', headers: { ...bearer('junk'), 'x-admin-key': body.adminKey } });
+      const { body, admin } = await create(await issuer.sign({ stormInactivityHours: 48 }));
+      const res = await getStorm(admin, bearer('junk'));
       expect(res.statusCode).toBe(200);
       expect(JSON.parse(res.body).license.limits.stormInactivityHours).toBe(48);
     });
@@ -362,9 +370,9 @@ describe('license enforcement', () => {
     });
 
     it('does not affect storms that already exist', async () => {
-      const { body } = await create();
+      const { body, admin } = await create();
       process.env.ANONYMOUS_LICENSE_JWT = 'junk';
-      const res = await adminStorm({ httpMethod: 'GET', headers: { ...{}, 'x-admin-key': body.adminKey } });
+      const res = await getStorm(admin);
       expect(res.statusCode).toBe(200);
     });
   });

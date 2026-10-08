@@ -15,6 +15,7 @@ import { handler as adminStorm } from '../../netlify/functions/admin-storm.js';
 import { handler as adminQuestions } from '../../netlify/functions/admin-questions.js';
 import { handler as vote } from '../../netlify/functions/vote.js';
 import { bearer, makeIssuer, useIssuer } from '../helpers/issuer.js';
+import { makeAdmin } from '../helpers/admin.js';
 
 describe('duplicate-storm function', () => {
   let issuer;
@@ -26,23 +27,38 @@ describe('duplicate-storm function', () => {
   });
 
   const post = (fn, body, jwt) => fn({ httpMethod: 'POST', headers: jwt ? bearer(jwt) : {}, body: JSON.stringify(body) });
-  const patch = (body) => adminStorm({ httpMethod: 'PATCH', headers: {}, body: JSON.stringify(body) });
-  const detail = async (adminKey) => JSON.parse((await adminStorm({ httpMethod: 'GET', headers: { ...{}, 'x-admin-key': adminKey } })).body);
+  const detail = async (admin) => JSON.parse((await admin.call(adminStorm, 'admin-storm', { httpMethod: 'GET' })).body);
   const row = async (stormCode) => (await createDb().execute({ sql: 'SELECT * FROM storms WHERE storm_code = ?', args: [stormCode] })).rows[0];
   const count = async (table, stormCode) =>
     Number((await createDb().execute({ sql: `SELECT COUNT(*) AS n FROM ${table} WHERE storm_code = ?`, args: [stormCode] })).rows[0].n);
+  const stormTotal = async () => Number((await createDb().execute('SELECT COUNT(*) AS n FROM storms')).rows[0].n);
+
+  // Asks to duplicate `from`, signed by `signer` (the source's presenter unless told otherwise), into a Storm owned by a fresh presenter.
+  async function duplicate({ from = source, signer = from, jwt, body } = {}) {
+    const copy = await makeAdmin();
+    const event = {
+      httpMethod: 'POST',
+      headers: jwt ? bearer(jwt) : {},
+      body: body ?? JSON.stringify({ publicKey: copy.publicKey, resultsKeyHash: copy.resultsKeyHash }),
+    };
+    const res = await signer.call(duplicateStorm, 'duplicate-storm', event, { stormCode: from.stormCode });
+    if (res.statusCode === 200) copy.stormCode = JSON.parse(res.body).stormCode;
+    return { res, copy, event };
+  }
 
   async function makeSource(jwt) {
-    const created = JSON.parse((await post(createStorm, {}, jwt)).body);
-    const { adminKey } = created;
-    const add = async (q) => JSON.parse((await post(adminQuestions, { adminKey, ...q }, jwt)).body).id;
+    const admin = await makeAdmin();
+    const created = await post(createStorm, { publicKey: admin.publicKey, resultsKeyHash: admin.resultsKeyHash }, jwt);
+    admin.stormCode = JSON.parse(created.body).stormCode;
+    const add = async (q) => JSON.parse((await admin.call(adminQuestions, 'admin-questions', { httpMethod: 'POST', headers: jwt ? bearer(jwt) : {}, body: JSON.stringify(q) })).body).id;
+    const patch = (body) => admin.call(adminStorm, 'admin-storm', { httpMethod: 'PATCH', headers: {}, body: JSON.stringify(body) });
     const choiceId = await add({ type: 'choice', prompt: 'Pick', options: ['A', 'B', 'C'], correct: [1], display: 'donut', resultsHidden: true });
     await add({ type: 'rating', prompt: 'Rate it', scaleMin: 1, scaleMax: 5 });
-    await patch({ adminKey, resultsBackground: '#1e293b' });
-    await patch({ adminKey, status: 'active', currentQuestionId: choiceId });
-    await post(vote, { stormCode: created.stormCode, questionId: choiceId, deviceId: 'dev-1', value: 0 });
-    await patch({ adminKey, questionId: choiceId, votingLocked: true });
-    return { ...created, choiceId };
+    await patch({ resultsBackground: '#1e293b' });
+    await patch({ status: 'active', currentQuestionId: choiceId });
+    await post(vote, { stormCode: admin.stormCode, questionId: choiceId, deviceId: 'dev-1', value: 0 });
+    await patch({ questionId: choiceId, votingLocked: true });
+    return admin;
   }
 
   beforeEach(async () => {
@@ -58,13 +74,13 @@ describe('duplicate-storm function', () => {
   });
 
   it('copies the questions and the background into a new Storm, without votes, lock or live question', async () => {
-    const res = await post(duplicateStorm, { adminKey: source.adminKey });
+    const { res, copy } = await duplicate();
     expect(res.statusCode).toBe(200);
-    const copy = JSON.parse(res.body);
-    expect(copy.adminKey).not.toBe(source.adminKey);
+    expect(JSON.parse(res.body)).not.toHaveProperty('adminKey');
+    expect(copy.stormCode).toHaveLength(8);
     expect(copy.stormCode).not.toBe(source.stormCode);
 
-    const data = await detail(copy.adminKey);
+    const data = await detail(copy);
     expect(data.questions.map((q) => q.prompt)).toEqual(['Pick', 'Rate it']);
     expect(data.questions.map((q) => q.order_index)).toEqual([0, 1]);
     expect(data.questions[0]).toMatchObject({ type: 'choice', options: JSON.stringify(['A', 'B', 'C']), correct: JSON.stringify([1]), display: 'donut', results_hidden: 1 });
@@ -76,44 +92,78 @@ describe('duplicate-storm function', () => {
   });
 
   it('leaves the original untouched', async () => {
-    await post(duplicateStorm, { adminKey: source.adminKey });
-    const original = await detail(source.adminKey);
+    await duplicate();
+    const original = await detail(source);
     expect(original.questions).toHaveLength(2);
     expect(original.questions[0].tally.totalVotes).toBe(1);
     expect(original.questions[0].voting_ms_left).toBe(0);
     expect(original.storm.status).toBe('active');
   });
 
-  it('gives the copy its own results key and storm code, so the two never mix', async () => {
-    const copy = JSON.parse((await post(duplicateStorm, { adminKey: source.adminKey })).body);
-    const [a, b] = [await detail(source.adminKey), await detail(copy.adminKey)];
-    expect(a.resultsKey).not.toBe(b.resultsKey);
+  it('gives the copy its own keys and storm code, so the two never mix', async () => {
+    const { copy } = await duplicate();
+    const [a, b] = [await row(source.stormCode), await row(copy.stormCode)];
+    expect(b.admin_public_key).toBe(copy.publicKey);
+    expect(b.admin_public_key).not.toBe(a.admin_public_key);
+    expect(b.results_key_hash).toBe(copy.resultsKeyHash);
+    expect(b.results_key_hash).not.toBe(a.results_key_hash);
     expect(await count('questions', source.stormCode)).toBe(2);
     expect(await count('questions', copy.stormCode)).toBe(2);
   });
 
-  it('takes the admin key from the x-admin-key header, and names the copy after the original', async () => {
-    await adminStorm({ httpMethod: 'PATCH', headers: { 'x-admin-key': source.adminKey }, body: JSON.stringify({ name: 'Town hall' }) });
-    const res = await duplicateStorm({ httpMethod: 'POST', headers: { 'x-admin-key': source.adminKey }, body: '{}' });
+  it('names the copy after the original', async () => {
+    await source.call(adminStorm, 'admin-storm', { httpMethod: 'PATCH', headers: {}, body: JSON.stringify({ name: 'Town hall' }) });
+    const { res, copy } = await duplicate();
     expect(res.statusCode).toBe(200);
-    const copy = JSON.parse(res.body);
     expect((await row(copy.stormCode)).name).toBe('Copy of Town hall');
     expect((await row(source.stormCode)).name).toBe('Town hall');
-    const unnamed = JSON.parse((await post(duplicateStorm, { adminKey: (await post(createStorm, {})).body && JSON.parse((await post(createStorm, {})).body).adminKey })).body);
-    expect((await row(unnamed.stormCode)).name).toBeNull();
+
+    const other = await makeAdmin();
+    const created = await post(createStorm, { publicKey: other.publicKey, resultsKeyHash: other.resultsKeyHash });
+    other.stormCode = JSON.parse(created.body).stormCode;
+    const unnamed = await duplicate({ from: other });
+    expect((await row(unnamed.copy.stormCode)).name).toBeNull();
   });
 
-  it('refuses a wrong or missing admin key', async () => {
-    expect((await post(duplicateStorm, { adminKey: 'nope' })).statusCode).toBe(401);
-    expect((await post(duplicateStorm, {})).statusCode).toBe(401);
-    expect((await post(duplicateStorm, { adminKey: 42 })).statusCode).toBe(401);
+  it('refuses an unsigned request, bad credentials for the copy, and the wrong method', async () => {
+    const copy = await makeAdmin();
+    const unsigned = await post(duplicateStorm, { publicKey: copy.publicKey, resultsKeyHash: copy.resultsKeyHash });
+    expect(unsigned.statusCode).toBe(401);
+    expect(JSON.parse(unsigned.body)).toEqual({ error: 'Invalid admin credentials' });
+    expect((await post(duplicateStorm, {})).statusCode).toBe(400);
     expect((await duplicateStorm({ httpMethod: 'POST', headers: {}, body: '{' })).statusCode).toBe(400);
     expect((await duplicateStorm({ httpMethod: 'GET', headers: {} })).statusCode).toBe(405);
+    expect((await duplicate({ body: JSON.stringify({ publicKey: copy.publicKey, resultsKeyHash: 'nope' }) })).res.statusCode).toBe(400);
+    expect(await stormTotal()).toBe(1);
+  });
+
+  it('refuses a duplicate signed by the wrong presenter', async () => {
+    const stranger = await makeAdmin();
+    const { res } = await duplicate({ signer: stranger });
+    expect(res.statusCode).toBe(401);
+    expect(JSON.parse(res.body)).toEqual({ error: 'Invalid admin credentials' });
+    expect(await stormTotal()).toBe(1);
+  });
+
+  it('refuses a request signed for another function', async () => {
+    const copy = await makeAdmin();
+    const event = { httpMethod: 'POST', headers: {}, body: JSON.stringify({ publicKey: copy.publicKey, resultsKeyHash: copy.resultsKeyHash }) };
+    const res = await duplicateStorm(await source.sign('admin-storm', event));
+    expect(res.statusCode).toBe(401);
+    expect(await stormTotal()).toBe(1);
+  });
+
+  it('refuses to replay a signed duplicate request, and makes no second copy', async () => {
+    const { res, event } = await duplicate();
+    expect(res.statusCode).toBe(200);
+    const replay = await duplicateStorm(await source.sign('duplicate-storm', event));
+    expect(replay.statusCode).toBe(409);
+    expect(await stormTotal()).toBe(2);
   });
 
   it('makes the copy under the license of whoever asks, and records them as its creator', async () => {
     const jwt = await issuer.sign({ name: 'Acme', stormInactivityHours: 72 }, { sub: 'acme' });
-    const copy = JSON.parse((await post(duplicateStorm, { adminKey: source.adminKey }, jwt)).body);
+    const { copy } = await duplicate({ jwt });
     const stored = await row(copy.stormCode);
     expect(stored).toMatchObject({ created_by_license_id: 'acme', created_by_license_name: 'Acme', license_id: 'acme' });
     expect(Number(stored.inactivity_hours)).toBe(72);
@@ -123,26 +173,25 @@ describe('duplicate-storm function', () => {
 
   it('counts the copy toward the active-Storm limit', async () => {
     const jwt = await issuer.sign({ name: 'Acme', maxActiveStorms: 1 }, { sub: 'acme' });
-    expect((await post(duplicateStorm, { adminKey: source.adminKey }, jwt)).statusCode).toBe(200);
-    const second = await post(duplicateStorm, { adminKey: source.adminKey }, jwt);
+    expect((await duplicate({ jwt })).res.statusCode).toBe(200);
+    const second = (await duplicate({ jwt })).res;
     expect(second.statusCode).toBe(403);
     expect(JSON.parse(second.body)).toMatchObject({ code: 'storm_limit' });
   });
 
   it('refuses when the copy would exceed the requester\'s question limit, and creates nothing', async () => {
     const jwt = await issuer.sign({ name: 'Small', maxQuestionsPerStorm: 1 }, { sub: 'small' });
-    const res = await post(duplicateStorm, { adminKey: source.adminKey }, jwt);
+    const { res } = await duplicate({ jwt });
     expect(res.statusCode).toBe(403);
     expect(JSON.parse(res.body)).toMatchObject({ code: 'question_limit' });
-    const stormCount = Number((await createDb().execute('SELECT COUNT(*) AS n FROM storms')).rows[0].n);
-    expect(stormCount).toBe(1);
+    expect(await stormTotal()).toBe(1);
   });
 
   it('removes the new Storm again if copying the questions fails', async () => {
     const db = createDb();
     await db.execute('CREATE TRIGGER no_copies BEFORE INSERT ON questions WHEN NEW.storm_code != \'' + source.stormCode + '\' BEGIN SELECT RAISE(ABORT, \'boom\'); END');
-    await expect(post(duplicateStorm, { adminKey: source.adminKey })).rejects.toThrow();
-    expect(Number((await db.execute('SELECT COUNT(*) AS n FROM storms')).rows[0].n)).toBe(1);
+    await expect(duplicate()).rejects.toThrow();
+    expect(await stormTotal()).toBe(1);
     await db.execute('DROP TRIGGER no_copies');
   });
 });

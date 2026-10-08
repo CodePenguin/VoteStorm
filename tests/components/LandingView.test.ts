@@ -10,6 +10,8 @@ vi.mock('@/api', () => ({
   getDeviceId: () => 'd',
   ApiError: class ApiError extends Error {},
 }));
+const createStormMock = vi.fn();
+vi.mock('@/lib/createStorm', () => ({ createStorm: (...a: unknown[]) => createStormMock(...a) }));
 
 import LandingView from '@/views/LandingView.vue';
 import { rememberStorm } from '@/lib/recentStorms';
@@ -27,6 +29,7 @@ async function mountAt(url: string, component: object = LandingView) {
 describe('LandingView', () => {
   beforeEach(() => {
     apiMock.mockReset();
+    createStormMock.mockReset();
   });
 
   it('explains the three steps', async () => {
@@ -37,23 +40,23 @@ describe('LandingView', () => {
   it('links to Your Storms only once this device has some', async () => {
     localStorage.clear();
     expect((await mountAt('/')).wrapper.find('.your-storms').exists()).toBe(false);
-    rememberStorm({ adminKey: 'K', stormCode: 'ABC234' });
+    rememberStorm({ secret: 'K', stormCode: 'ABCD2345' });
     const { wrapper } = await mountAt('/');
     expect(wrapper.find('.your-storms a').attributes('href')).toBe('/storms');
     localStorage.clear();
   });
 
   it('creates a storm in one click and opens the presenter', async () => {
-    apiMock.mockResolvedValue({ adminKey: 'SECRETKEY', stormCode: 'ABC234' });
+    createStormMock.mockResolvedValue({ stormCode: 'ABCD2345', secret: 'SECRETKEY' });
     const { wrapper, router } = await mountAt('/');
     await wrapper.find('button').trigger('click');
     await flushPromises();
-    expect(apiMock).toHaveBeenCalledWith('create-storm', { method: 'POST' });
-    await vi.waitFor(() => expect(router.currentRoute.value.fullPath).toBe('/presenter#key=SECRETKEY'), { timeout: 10000 });
+    expect(createStormMock).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => expect(router.currentRoute.value.fullPath).toBe('/presenter/ABCD2345#k=SECRETKEY'), { timeout: 10000 });
   });
 
   it('points to the license page when storm creation is refused because of the license', async () => {
-    apiMock.mockRejectedValue(Object.assign(new Error('This license has expired'), { code: 'license_invalid' }));
+    createStormMock.mockRejectedValue(Object.assign(new Error('This license has expired'), { code: 'license_invalid' }));
     const { wrapper } = await mountAt('/');
     await wrapper.find('button').trigger('click');
     await flushPromises();
@@ -62,7 +65,7 @@ describe('LandingView', () => {
   });
 
   it('shows the error and lets the user try again when creating fails', async () => {
-    apiMock.mockRejectedValue(new Error('Database unavailable'));
+    createStormMock.mockRejectedValue(new Error('Database unavailable'));
     const { wrapper, router } = await mountAt('/');
     await wrapper.find('button').trigger('click');
     await flushPromises();
@@ -88,7 +91,7 @@ describe('App shell', () => {
 
   it('leaves the footer to the projector results screen', async () => {
     apiMock.mockRejectedValue(new Error('x'));
-    const { wrapper } = await mountAt('/results#key=KEY', App);
+    const { wrapper } = await mountAt('/results#k=KEY', App);
     expect(wrapper.find('.app-footer').exists()).toBe(false);
     expect(wrapper.find('.results-page .footer .attribution a').attributes('href')).toBe('https://codepenguin.com');
   });

@@ -1,6 +1,6 @@
 import type { RouteLocationRaw } from 'vue-router';
 
-// Presenter and results links keep their secret and their state after the `#`, as `#key=...&tab=...`. Browsers never
+// Presenter and results links keep their secret and their state after the `#`, as `#k=...&t=...`. Browsers never
 // send the fragment to a server, so none of it reaches logs, referrers or redirects.
 
 type Values = Record<string, string | number | null | undefined>;
@@ -10,7 +10,7 @@ export function readFragment(hash: string): URLSearchParams {
   return new URLSearchParams(hash.startsWith('#') ? hash.slice(1) : hash);
 }
 
-/** `#key=...&q=...` from the values that are set (null and undefined are left out). Empty if none are. */
+/** `#k=...&q=...` from the values that are set (null and undefined are left out). Empty if none are. */
 export function fragmentFor(values: Values): string {
   const params = new URLSearchParams();
   for (const [name, value] of Object.entries(values)) {
@@ -20,11 +20,11 @@ export function fragmentFor(values: Values): string {
   return text ? `#${text}` : '';
 }
 
-export const presenterLocation = (adminKey?: string | null, tab?: string | null): RouteLocationRaw => ({
-  path: '/presenter',
-  hash: fragmentFor({ key: adminKey, tab }),
+export const presenterLocation = (stormCode: string, secret?: string | null, tab?: string | null): RouteLocationRaw => ({
+  path: `/presenter/${stormCode}`,
+  hash: fragmentFor({ k: secret, t: tab }),
 });
 
 /** A link anyone can open to watch a Storm's results, optionally pinned to one question. */
 export const resultsUrl = (origin: string, resultsKey: string, questionId?: number | null) =>
-  `${origin}/results${fragmentFor({ key: resultsKey, q: questionId })}`;
+  `${origin}/results${fragmentFor({ k: resultsKey, q: questionId })}`;

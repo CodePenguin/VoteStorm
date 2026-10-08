@@ -1,30 +1,29 @@
 import { describe, it, expect } from 'vitest';
-import { generateAdminKey, hashAdminKey, deriveStormCode } from '../../lib/stormCode.js';
+import { createHash } from 'node:crypto';
+import { STORM_CODE_LENGTH, generateStormCode, normalizeStormCode, hashResultsKey } from '../../lib/stormCode.js';
 
 describe('stormCode', () => {
-  it('derives a 6-character storm code deterministically', () => {
-    const key = 'test-admin-key-12345';
-    const code1 = deriveStormCode(key);
-    const code2 = deriveStormCode(key);
-    expect(code1).toBe(code2);
-    expect(code1).toHaveLength(6);
-    expect(code1).toMatch(/^[A-Z2-7]+$/);
-  });
-
-  it('produces different codes for different keys', () => {
-    expect(deriveStormCode('key-a')).not.toBe(deriveStormCode('key-b'));
-  });
-
-  it('generateAdminKey returns a unique-looking hex string', () => {
-    const a = generateAdminKey();
-    const b = generateAdminKey();
+  it('generateStormCode returns 8 base32 characters and differs between calls', () => {
+    const a = generateStormCode();
+    const b = generateStormCode();
+    expect(STORM_CODE_LENGTH).toBe(8);
+    expect(a).toHaveLength(8);
+    expect(a).toMatch(/^[A-Z2-7]{8}$/);
     expect(a).not.toBe(b);
-    expect(a).toMatch(/^[0-9a-f]{48}$/);
   });
 
-  it('hashAdminKey is deterministic sha256 hex', () => {
-    const key = 'abc';
-    expect(hashAdminKey(key)).toBe(hashAdminKey(key));
-    expect(hashAdminKey(key)).toHaveLength(64);
+  it('normalizeStormCode uppercases and strips spaces and hyphens', () => {
+    expect(normalizeStormCode('abcd-efgh')).toBe('ABCDEFGH');
+    expect(normalizeStormCode('ABCD EFGH')).toBe('ABCDEFGH');
+    expect(normalizeStormCode(' abcd efgh ')).toBe('ABCDEFGH');
+  });
+
+  it('normalizeStormCode returns an empty string for non-strings', () => {
+    expect(normalizeStormCode(undefined)).toBe('');
+    expect(normalizeStormCode(42)).toBe('');
+  });
+
+  it('hashResultsKey is sha256 of the prefixed key', () => {
+    expect(hashResultsKey('x')).toBe(createHash('sha256').update('results:x').digest('hex'));
   });
 });

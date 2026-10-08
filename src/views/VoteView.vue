@@ -5,6 +5,7 @@ import type * as Ably from 'ably';
 import { api, ApiError, getDeviceId } from '@/api';
 import { subscribeStorm } from '@/composables/useStormChannel';
 import { useVotingClock } from '@/composables/useVotingClock';
+import { normalizeStormCode } from '@/lib/stormCode';
 import { normalizeTally, ratingValues } from '@/lib/tally';
 import type { ClosedQuestion, Question, StormState, Tally } from '@/shared/types';
 import BrandMark from '@/components/BrandMark.vue';
@@ -13,7 +14,7 @@ import ResultsCarousel from '@/components/ResultsCarousel.vue';
 import ShareModal from '@/components/ShareModal.vue';
 
 const route = useRoute();
-const stormCode = computed(() => String(route.params.stormCode ?? ''));
+const stormCode = computed(() => normalizeStormCode(String(route.params.stormCode ?? '')));
 const deviceId = getDeviceId();
 
 const currentQuestion = ref<Question | null>(null);

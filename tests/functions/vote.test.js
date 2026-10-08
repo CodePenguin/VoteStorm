@@ -18,6 +18,7 @@ vi.mock('../../lib/db.js', async (importOriginal) => {
 
 import { publishEvent } from '../../lib/realtime.js';
 import { createDb, initSchema } from '../../lib/db.js';
+import { seedStorm } from '../helpers/admin.js';
 import { handler } from '../../netlify/functions/vote.js';
 
 describe('vote function', () => {
@@ -26,10 +27,7 @@ describe('vote function', () => {
     process.env.TURSO_DATABASE_URL = `file:${path.join(dir, 'test.db')}`;
     const db = createDb();
     await initSchema(db);
-    await db.execute({
-      sql: `INSERT INTO storms (admin_key_hash, storm_code, status, current_question_id, created_at, license_json) VALUES (?, ?, 'active', 1, ?, '{"id":"anonymous","name":"Anonymous","tier":"anonymous","expiresAt":null,"stormInactivityHours":24}')`,
-      args: ['hash1', 'STORM01', Date.now()],
-    });
+    await seedStorm(db, { storm_code: 'STORM01', status: 'active', current_question_id: 1 });
     await db.execute({
       sql: `INSERT INTO questions (id, storm_code, order_index, type, prompt, options, created_at) VALUES (1, 'STORM01', 0, 'choice', 'Pick one', ?, ?)`,
       args: [JSON.stringify(['A', 'B']), Date.now()],
@@ -39,6 +37,15 @@ describe('vote function', () => {
 
   afterEach(() => {
     delete process.env.TURSO_DATABASE_URL;
+  });
+
+  it('finds the storm from a lower-case, hyphenated code and publishes on the stored code', async () => {
+    const res = await handler({
+      httpMethod: 'POST',
+      body: JSON.stringify({ stormCode: 'storm-01', questionId: 1, deviceId: 'dev-norm', value: 0 }),
+    });
+    expect(res.statusCode).toBe(200);
+    expect(publishEvent).toHaveBeenCalledWith('STORM01', 'tally', expect.objectContaining({ questionId: 1 }));
   });
 
   describe('locked and timed voting', () => {

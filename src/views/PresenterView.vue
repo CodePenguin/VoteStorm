@@ -1,13 +1,16 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import type * as Ably from 'ably';
-import { api, ApiError } from '@/api';
+import { ApiError } from '@/api';
 import { subscribeStorm } from '@/composables/useStormChannel';
 import { usePresenter } from '@/composables/usePresenter';
 import { blankForm, formFromQuestion, statusLabel } from '@/lib/presenter';
+import type { AdminSession } from '@/lib/adminRequest';
+import { createStorm as makeStorm } from '@/lib/createStorm';
 import { fragmentFor, presenterLocation, readFragment } from '@/lib/fragment';
 import { forgetStorm, rememberStorm } from '@/lib/recentStorms';
+import { normalizeStormCode } from '@/lib/stormCode';
 import type { AdminQuestion, QuestionForm, QuestionPayload } from '@/shared/types';
 import BrandMark from '@/components/BrandMark.vue';
 import ControlTab from '@/components/presenter/ControlTab.vue';
@@ -21,10 +24,13 @@ const TABS: Tab[] = ['questions', 'storm'];
 
 const route = useRoute();
 const router = useRouter();
-// The admin key and the open tab live after the `#`, which a browser never sends to a server.
+// The Storm code is in the path; the secret and the open tab are after the `#`, which a browser never sends to a server.
 const fragment = computed(() => readFragment(route.hash));
-const adminKey = computed(() => fragment.value.get('key') ?? '');
-const store = usePresenter(adminKey);
+const stormCode = computed(() => normalizeStormCode(String(route.params.stormCode ?? '')));
+const secret = computed(() => fragment.value.get('k') ?? '');
+const session = computed(() => ({ stormCode: stormCode.value, secret: secret.value }));
+const hasSession = computed(() => !!stormCode.value && !!secret.value);
+const store = usePresenter(session);
 
 function readMode(): 'edit' | 'present' {
   try {
@@ -35,7 +41,7 @@ function readMode(): 'edit' | 'present' {
 }
 
 const mode = ref<'edit' | 'present'>(readMode());
-const hashTab = readFragment(route.hash).get('tab') as Tab;
+const hashTab = readFragment(route.hash).get('t') as Tab;
 const tab = ref<Tab>(TABS.includes(hashTab) ? hashTab : 'questions');
 const showShare = ref(false);
 const showForm = ref(false);
@@ -55,7 +61,7 @@ function setMode(next: 'edit' | 'present') {
 
 function setTab(next: Tab) {
   tab.value = next;
-  void router.replace({ path: route.path, hash: fragmentFor({ key: adminKey.value, tab: next }) });
+  void router.replace({ path: route.path, hash: fragmentFor({ k: secret.value, t: next }) });
 }
 
 function onKey(e: KeyboardEvent) {
@@ -88,36 +94,53 @@ async function save(payload: QuestionPayload) {
 
 async function createStorm() {
   try {
-    const data = await api<{ adminKey: string }>('create-storm', { method: 'POST' });
-    await router.push(presenterLocation(data.adminKey));
-    await init();
+    const created = await makeStorm();
+    await router.push(presenterLocation(created.stormCode, created.secret));
   } catch (e) {
     store.error.value = (e as Error)?.message || 'Something went wrong';
   }
 }
 
-async function openCopy(newKey: string) {
-  await router.push(presenterLocation(newKey));
+async function openCopy(copy: AdminSession) {
+  await router.push(presenterLocation(copy.stormCode, copy.secret));
   setTab('questions');
-  await init();
 }
 
+// Counts the loads started, so a slow answer for a Storm the link no longer points at is dropped.
+let loadId = 0;
+
 async function init() {
-  if (!adminKey.value) return;
+  if (!hasSession.value) return;
+  const mine = ++loadId;
+  const code = stormCode.value;
+  const key = secret.value;
   try {
     await store.load();
   } catch (e) {
-    if (e instanceof ApiError && e.status === 401) forgetStorm(adminKey.value);
+    if (mine !== loadId) return;
+    // A clock_skew 401 comes only after a valid signature, so the Storm exists and the secret is still needed.
+    if (e instanceof ApiError && e.status === 401 && e.code !== 'clock_skew') forgetStorm(code);
     store.error.value = (e as Error)?.message || 'Something went wrong';
     return;
   }
-  rememberStorm({ adminKey: adminKey.value, stormCode: store.storm.value!.storm_code, name: store.storm.value!.name ?? null });
+  if (mine !== loadId) return;
+  rememberStorm({ stormCode: code, secret: key, name: store.storm.value!.name ?? null });
   ably?.close();
   ably = subscribeStorm(store.storm.value!.storm_code, {
     tally: (data) => store.onTally(data),
     state: () => store.safeLoad(),
   });
 }
+
+// The link can change under this page (browser Back after Duplicate, or opening another Storm), so everything shown and
+// every call signed must follow it: drop the old Storm and its live connection, then load the one the link now names.
+watch([stormCode, secret], () => {
+  loadId++;
+  store.reset();
+  ably?.close();
+  ably = null;
+  void init();
+});
 
 onMounted(() => {
   window.addEventListener('keydown', onKey);
@@ -165,11 +188,16 @@ onBeforeUnmount(() => {
       <h1 class="sr-only">Presenter</h1>
       <div v-if="store.error.value" class="alert error" style="margin-bottom: 16px">Couldn't complete that: {{ store.error.value }}</div>
 
-      <div v-if="!adminKey" class="card empty">
+      <div v-if="!stormCode" class="card empty">
         <strong>No Storm yet</strong>
         <p style="margin-bottom: 16px">Create a Storm to start adding questions.</p>
         <button class="btn primary" @click="createStorm">Create a new Storm</button>
         <p style="margin-top: 16px"><RouterLink to="/storms">Your Storms</RouterLink></p>
+      </div>
+
+      <div v-else-if="!secret" class="card empty">
+        <strong>This link is missing its key</strong>
+        <p>Open the full presenter link, or find the Storm under <RouterLink to="/storms">Your Storms</RouterLink>.</p>
       </div>
 
       <div v-else-if="store.storm.value">
@@ -238,6 +266,7 @@ onBeforeUnmount(() => {
 .q-actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border); }
 .empty { text-align: center; padding: 36px 20px; color: var(--text-muted); }
 .empty strong { display: block; color: var(--text); margin-bottom: 4px; }
+.empty p a { text-decoration: underline; }
 .toolbar { display: flex; gap: 8px; flex-wrap: wrap; }
 .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 999px; padding: 2px; background: var(--surface-2); }
 .seg button { border: 0; background: transparent; color: var(--text-muted); font: inherit; font-size: .82rem; font-weight: 700; padding: 5px 14px; border-radius: 999px; cursor: pointer; }

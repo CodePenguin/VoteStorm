@@ -11,7 +11,8 @@ describe('router', () => {
     expect(resolve('/vote/XYZ234')).toMatchObject({ name: 'vote', params: { stormCode: 'XYZ234' } });
     expect(resolve('/results').name).toBe('results');
     expect(resolve('/storms').name).toBe('storms');
-    expect(resolve('/presenter/abc123').name).toBe('not-found'); // keys live after the #, not in the path
+    expect(resolve('/presenter/ABCDEFGH')).toMatchObject({ name: 'presenter', params: { stormCode: 'ABCDEFGH' } }); // the secret lives after the #
+    expect(resolve('/presenter').params.stormCode).toBeFalsy();
     expect(resolve('/license').name).toBe('license');
     expect(resolve('/privacy').name).toBe('privacy');
     expect(resolve('/nope/nothing').name).toBe('not-found');

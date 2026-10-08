@@ -1,66 +1,42 @@
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach } from 'vitest';
-import { fragmentFor, presenterLocation, readFragment, resultsUrl } from '@/lib/fragment';
 import { MAX_RECENT, forgetStorm, loadRecent, rememberStorm, renameRemembered } from '@/lib/recentStorms';
 import { agoLabel, inLabel } from '@/lib/relativeTime';
-
-describe('fragment links', () => {
-  it('reads and writes key=value pairs after the #, leaving out what is not set', () => {
-    expect(readFragment('#key=abc&tab=storm').get('key')).toBe('abc');
-    expect(readFragment('key=abc').get('key')).toBe('abc');
-    expect(readFragment('').get('key')).toBeNull();
-    expect(fragmentFor({ key: 'abc', tab: 'storm' })).toBe('#key=abc&tab=storm');
-    expect(fragmentFor({ key: 'abc', tab: null, q: undefined })).toBe('#key=abc');
-    expect(fragmentFor({})).toBe('');
-    expect(fragmentFor({ key: 'abc', q: 7 })).toBe('#key=abc&q=7');
-  });
-
-  it('builds presenter and results links with the secret only after the #', () => {
-    expect(presenterLocation('K1')).toEqual({ path: '/presenter', hash: '#key=K1' });
-    expect(presenterLocation('K1', 'storm')).toEqual({ path: '/presenter', hash: '#key=K1&tab=storm' });
-    expect(presenterLocation()).toEqual({ path: '/presenter', hash: '' });
-    expect(resultsUrl('https://x.test', 'RK')).toBe('https://x.test/results#key=RK');
-    expect(resultsUrl('https://x.test', 'RK', 5)).toBe('https://x.test/results#key=RK&q=5');
-  });
-
-  it('survives awkward characters', () => {
-    expect(readFragment(fragmentFor({ key: 'a&b=c d' })).get('key')).toBe('a&b=c d');
-  });
-});
 
 describe('recent Storms on this device', () => {
   beforeEach(() => localStorage.clear());
 
   it('starts empty, remembers Storms newest first, and moves a reopened one to the top', () => {
     expect(loadRecent()).toEqual([]);
-    rememberStorm({ adminKey: 'k1', stormCode: 'AAA111' }, 1000);
-    rememberStorm({ adminKey: 'k2', stormCode: 'BBB222', name: 'Town hall' }, 2000);
-    expect(loadRecent().map((e) => e.adminKey)).toEqual(['k2', 'k1']);
-    rememberStorm({ adminKey: 'k1', stormCode: 'AAA111', name: 'Renamed' }, 3000);
-    expect(loadRecent().map((e) => [e.adminKey, e.name])).toEqual([['k1', 'Renamed'], ['k2', 'Town hall']]);
+    rememberStorm({ secret: 's1', stormCode: 'AAA111' }, 1000);
+    rememberStorm({ secret: 's2', stormCode: 'BBB222', name: 'Town hall' }, 2000);
+    expect(loadRecent().map((e) => e.stormCode)).toEqual(['BBB222', 'AAA111']);
+    rememberStorm({ secret: 's1', stormCode: 'AAA111', name: 'Renamed' }, 3000);
+    expect(loadRecent().map((e) => [e.stormCode, e.name])).toEqual([['AAA111', 'Renamed'], ['BBB222', 'Town hall']]);
+    expect(loadRecent()).toHaveLength(2);
   });
 
   it('renames without reordering, and forgets', () => {
-    rememberStorm({ adminKey: 'k1', stormCode: 'A' }, 1000);
-    rememberStorm({ adminKey: 'k2', stormCode: 'B' }, 2000);
-    renameRemembered('k1', 'First');
-    expect(loadRecent().map((e) => [e.adminKey, e.name])).toEqual([['k2', null], ['k1', 'First']]);
-    forgetStorm('k2');
-    expect(loadRecent().map((e) => e.adminKey)).toEqual(['k1']);
+    rememberStorm({ secret: 's1', stormCode: 'A' }, 1000);
+    rememberStorm({ secret: 's2', stormCode: 'B' }, 2000);
+    renameRemembered('A', 'First');
+    expect(loadRecent().map((e) => [e.stormCode, e.name])).toEqual([['B', null], ['A', 'First']]);
+    forgetStorm('B');
+    expect(loadRecent().map((e) => e.stormCode)).toEqual(['A']);
   });
 
   it('keeps only the most recent ones', () => {
-    for (let i = 0; i < MAX_RECENT + 5; i++) rememberStorm({ adminKey: `k${i}`, stormCode: `C${i}` }, i);
+    for (let i = 0; i < MAX_RECENT + 5; i++) rememberStorm({ secret: `s${i}`, stormCode: `C${i}` }, i);
     const list = loadRecent();
     expect(list).toHaveLength(MAX_RECENT);
-    expect(list[0].adminKey).toBe(`k${MAX_RECENT + 4}`);
+    expect(list[0].stormCode).toBe(`C${MAX_RECENT + 4}`);
   });
 
   it('ignores stored data that is damaged, without throwing', () => {
     localStorage.setItem('votestorm_recent', 'not json');
     expect(loadRecent()).toEqual([]);
-    localStorage.setItem('votestorm_recent', JSON.stringify([{ adminKey: 1 }, null, 'x', { adminKey: 'ok', stormCode: 'S', name: null, lastOpenedAt: 5 }]));
-    expect(loadRecent()).toEqual([{ adminKey: 'ok', stormCode: 'S', name: null, lastOpenedAt: 5 }]);
+    localStorage.setItem('votestorm_recent', JSON.stringify([{ secret: 1 }, null, 'x', { adminKey: 'old', stormCode: 'O', name: null, lastOpenedAt: 9 }, { secret: 'ok', stormCode: 'S', name: null, lastOpenedAt: 5 }]));
+    expect(loadRecent()).toEqual([{ secret: 'ok', stormCode: 'S', name: null, lastOpenedAt: 5 }]);
   });
 
   it('does not break when storage is unavailable', () => {
@@ -69,7 +45,7 @@ describe('recent Storms on this device', () => {
       throw new Error('full');
     };
     try {
-      expect(() => rememberStorm({ adminKey: 'k', stormCode: 'S' })).not.toThrow();
+      expect(() => rememberStorm({ secret: 's', stormCode: 'S' })).not.toThrow();
     } finally {
       Storage.prototype.setItem = original;
     }

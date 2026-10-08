@@ -9,6 +9,7 @@ vi.mock('../../lib/realtime.js', () => ({
 }));
 
 import { createDb, deleteStormCascade, getDbUrl, initSchema } from '../../lib/db.js';
+import { makeAdmin } from '../helpers/admin.js';
 import { handler as createStorm } from '../../netlify/functions/create-storm.js';
 import { handler as adminQuestions } from '../../netlify/functions/admin-questions.js';
 import { handler as adminStorm } from '../../netlify/functions/admin-storm.js';
@@ -32,34 +33,40 @@ describe('hardening', () => {
     delete process.env.RATE_LIMIT_SCALE;
   });
 
-  const newStorm = async (headers = {}) => JSON.parse((await createStorm({ httpMethod: 'POST', headers })).body);
-  const addQuestion = (adminKey, fields, headers = {}) => adminQuestions({
-    httpMethod: 'POST', headers, body: JSON.stringify({ adminKey, type: 'choice', prompt: 'Q', options: ['A', 'B'], ...fields }),
+  const createBody = (admin) => JSON.stringify({ publicKey: admin.publicKey, resultsKeyHash: admin.resultsKeyHash });
+  const create = async (headers = {}) => createStorm({ httpMethod: 'POST', headers, body: createBody(await makeAdmin()) });
+  const newStorm = async (headers = {}) => {
+    const admin = await makeAdmin();
+    admin.stormCode = JSON.parse((await createStorm({ httpMethod: 'POST', headers, body: createBody(admin) })).body).stormCode;
+    return admin;
+  };
+  const addQuestion = (admin, fields, headers = {}) => admin.call(adminQuestions, 'admin-questions', {
+    httpMethod: 'POST', headers, body: JSON.stringify({ type: 'choice', prompt: 'Q', options: ['A', 'B'], ...fields }),
   });
 
   describe('storm creation', () => {
     it('limits how many storms one address can create per hour', async () => {
       process.env.RATE_LIMIT_SCALE = '0.1'; // 20/hour becomes 2
-      expect((await createStorm({ httpMethod: 'POST', headers: ip(1) })).statusCode).toBe(200);
-      expect((await createStorm({ httpMethod: 'POST', headers: ip(1) })).statusCode).toBe(200);
-      const blocked = await createStorm({ httpMethod: 'POST', headers: ip(1) });
+      expect((await create(ip(1))).statusCode).toBe(200);
+      expect((await create(ip(1))).statusCode).toBe(200);
+      const blocked = await create(ip(1));
       expect(blocked.statusCode).toBe(429);
       expect(JSON.parse(blocked.body).error).toContain('Too many requests');
-      expect((await createStorm({ httpMethod: 'POST', headers: ip(2) })).statusCode).toBe(200);
+      expect((await create(ip(2))).statusCode).toBe(200);
     });
 
     it('is not limited when the caller address is unknown (local development)', async () => {
       process.env.RATE_LIMIT_SCALE = '0.0001';
-      for (let i = 0; i < 4; i++) expect((await createStorm({ httpMethod: 'POST' })).statusCode).toBe(200);
+      for (let i = 0; i < 4; i++) expect((await create()).statusCode).toBe(200);
     });
   });
 
   describe('voting', () => {
     async function liveStorm() {
-      const storm = await newStorm();
-      const q = JSON.parse((await addQuestion(storm.adminKey, {})).body).id;
-      await adminStorm({ httpMethod: 'PATCH', headers: {}, body: JSON.stringify({ adminKey: storm.adminKey, status: 'active', currentQuestionId: q }) });
-      return { ...storm, q };
+      const admin = await newStorm();
+      const q = JSON.parse((await addQuestion(admin, {})).body).id;
+      await admin.call(adminStorm, 'admin-storm', { httpMethod: 'PATCH', body: JSON.stringify({ status: 'active', currentQuestionId: q }) });
+      return { stormCode: admin.stormCode, q };
     }
     const castVote = (storm, deviceId, headers = {}, value = 0) => vote({
       httpMethod: 'POST', headers, body: JSON.stringify({ stormCode: storm.stormCode, questionId: storm.q, deviceId, value }),
@@ -98,41 +105,41 @@ describe('hardening', () => {
   describe('question input', () => {
     it('accepts a normal question', async () => {
       const storm = await newStorm();
-      expect((await addQuestion(storm.adminKey, {})).statusCode).toBe(200);
-      expect((await addQuestion(storm.adminKey, { type: 'rating', options: undefined, scaleMin: 1, scaleMax: 10 })).statusCode).toBe(200);
+      expect((await addQuestion(storm, {})).statusCode).toBe(200);
+      expect((await addQuestion(storm, { type: 'rating', options: undefined, scaleMin: 1, scaleMax: 10 })).statusCode).toBe(200);
     });
 
     it('rejects a missing, blank or over-long prompt', async () => {
       const storm = await newStorm();
       for (const prompt of [undefined, '', '   ', 'x'.repeat(MAX_PROMPT_LENGTH + 1)]) {
-        const res = await addQuestion(storm.adminKey, { prompt });
+        const res = await addQuestion(storm, { prompt });
         expect(res.statusCode).toBe(400);
       }
-      expect((await addQuestion(storm.adminKey, { prompt: 'x'.repeat(MAX_PROMPT_LENGTH) })).statusCode).toBe(200);
+      expect((await addQuestion(storm, { prompt: 'x'.repeat(MAX_PROMPT_LENGTH) })).statusCode).toBe(200);
     });
 
     it('rejects choices with too few, too many or over-long options', async () => {
       const storm = await newStorm();
-      expect((await addQuestion(storm.adminKey, { options: ['only one'] })).statusCode).toBe(400);
-      expect((await addQuestion(storm.adminKey, { options: undefined })).statusCode).toBe(400);
-      expect((await addQuestion(storm.adminKey, { options: Array.from({ length: MAX_OPTIONS + 1 }, (_, i) => `o${i}`) })).statusCode).toBe(400);
-      expect((await addQuestion(storm.adminKey, { options: ['ok', 'x'.repeat(MAX_OPTION_LENGTH + 1)] })).statusCode).toBe(400);
-      expect((await addQuestion(storm.adminKey, { options: Array.from({ length: MAX_OPTIONS }, (_, i) => `o${i}`) })).statusCode).toBe(200);
+      expect((await addQuestion(storm, { options: ['only one'] })).statusCode).toBe(400);
+      expect((await addQuestion(storm, { options: undefined })).statusCode).toBe(400);
+      expect((await addQuestion(storm, { options: Array.from({ length: MAX_OPTIONS + 1 }, (_, i) => `o${i}`) })).statusCode).toBe(400);
+      expect((await addQuestion(storm, { options: ['ok', 'x'.repeat(MAX_OPTION_LENGTH + 1)] })).statusCode).toBe(400);
+      expect((await addQuestion(storm, { options: Array.from({ length: MAX_OPTIONS }, (_, i) => `o${i}`) })).statusCode).toBe(200);
     });
 
     it('rejects an unknown type and unreasonable rating scales', async () => {
       const storm = await newStorm();
-      expect((await addQuestion(storm.adminKey, { type: 'essay' })).statusCode).toBe(400);
-      expect((await addQuestion(storm.adminKey, { type: 'rating', scaleMin: 5, scaleMax: 5 })).statusCode).toBe(400);
-      expect((await addQuestion(storm.adminKey, { type: 'rating', scaleMin: 1, scaleMax: MAX_SCALE_VALUES + 1 })).statusCode).toBe(400);
-      expect((await addQuestion(storm.adminKey, { type: 'rating', scaleMin: 1, scaleMax: MAX_SCALE_VALUES })).statusCode).toBe(200);
+      expect((await addQuestion(storm, { type: 'essay' })).statusCode).toBe(400);
+      expect((await addQuestion(storm, { type: 'rating', scaleMin: 5, scaleMax: 5 })).statusCode).toBe(400);
+      expect((await addQuestion(storm, { type: 'rating', scaleMin: 1, scaleMax: MAX_SCALE_VALUES + 1 })).statusCode).toBe(400);
+      expect((await addQuestion(storm, { type: 'rating', scaleMin: 1, scaleMax: MAX_SCALE_VALUES })).statusCode).toBe(200);
     });
 
     it('applies the same rules when a question is edited', async () => {
       const storm = await newStorm();
-      const id = JSON.parse((await addQuestion(storm.adminKey, {})).body).id;
-      const edit = (fields) => adminQuestions({
-        httpMethod: 'PATCH', headers: {}, body: JSON.stringify({ adminKey: storm.adminKey, questionId: id, edit: { type: 'choice', prompt: 'Q', options: ['A', 'B'], ...fields } }),
+      const id = JSON.parse((await addQuestion(storm, {})).body).id;
+      const edit = (fields) => storm.call(adminQuestions, 'admin-questions', {
+        httpMethod: 'PATCH', body: JSON.stringify({ questionId: id, edit: { type: 'choice', prompt: 'Q', options: ['A', 'B'], ...fields } }),
       });
       expect((await edit({ prompt: 'x'.repeat(MAX_PROMPT_LENGTH + 1) })).statusCode).toBe(400);
       expect((await edit({ options: ['A', 'y'.repeat(MAX_OPTION_LENGTH + 1)] })).statusCode).toBe(400);
@@ -142,8 +149,8 @@ describe('hardening', () => {
     it('limits how fast questions can be added from one address', async () => {
       const storm = await newStorm();
       process.env.RATE_LIMIT_SCALE = '0.025'; // 120/min becomes 3/min
-      for (let i = 0; i < 3; i++) expect((await addQuestion(storm.adminKey, { prompt: `q${i}` }, ip(20))).statusCode).toBe(200);
-      expect((await addQuestion(storm.adminKey, { prompt: 'q3' }, ip(20))).statusCode).toBe(429);
+      for (let i = 0; i < 3; i++) expect((await addQuestion(storm, { prompt: `q${i}` }, ip(20))).statusCode).toBe(200);
+      expect((await addQuestion(storm, { prompt: 'q3' }, ip(20))).statusCode).toBe(429);
     });
   });
 
@@ -188,7 +195,7 @@ describe('hardening', () => {
       const db = createDb();
       await initSchema(db);
       for (let i = 0; i < 15; i++) {
-        const id = JSON.parse((await addQuestion(storm.adminKey, { prompt: `q${i}` })).body).id;
+        const id = JSON.parse((await addQuestion(storm, { prompt: `q${i}` })).body).id;
         await db.execute({ sql: 'INSERT INTO votes (question_id, device_id, value, created_at) VALUES (?, ?, ?, ?)', args: [id, 'd1', '0', Date.now()] });
       }
       await deleteStormCascade(db, storm.stormCode);
@@ -201,10 +208,10 @@ describe('hardening', () => {
       const storm = await newStorm();
       const db = createDb();
       for (let i = 0; i < 4; i++) {
-        const id = JSON.parse((await addQuestion(storm.adminKey, { prompt: `q${i}` })).body).id;
+        const id = JSON.parse((await addQuestion(storm, { prompt: `q${i}` })).body).id;
         await db.execute({ sql: 'INSERT INTO votes (question_id, device_id, value, created_at) VALUES (?, ?, ?, ?)', args: [id, 'd1', '0', Date.now()] });
       }
-      const res = await adminStorm({ httpMethod: 'PATCH', headers: {}, body: JSON.stringify({ adminKey: storm.adminKey, action: 'reset' }) });
+      const res = await storm.call(adminStorm, 'admin-storm', { httpMethod: 'PATCH', body: JSON.stringify({ action: 'reset' }) });
       expect(res.statusCode).toBe(200);
       expect(Number((await db.execute('SELECT COUNT(*) AS n FROM votes')).rows[0].n)).toBe(0);
       expect(Number((await db.execute('SELECT COUNT(*) AS n FROM questions')).rows[0].n)).toBe(4);
@@ -213,7 +220,7 @@ describe('hardening', () => {
 
   describe('response headers', () => {
     it('are not cached and not sniffable', async () => {
-      const res = await createStorm({ httpMethod: 'POST', headers: {} });
+      const res = await create();
       expect(res.headers['cache-control']).toBe('no-store');
       expect(res.headers['x-content-type-options']).toBe('nosniff');
     });

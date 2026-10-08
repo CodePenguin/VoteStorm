@@ -57,7 +57,7 @@ async function mountResults(url: string, responses: Routes) {
   return wrapper;
 }
 
-const resolved = { 'resolve-results-key': { stormCode: 'STORM01' } };
+const resolved = { 'resolve-results-key': { stormCode: 'ABCDEFGH' } };
 
 describe('ResultsView', () => {
   beforeEach(() => {
@@ -66,8 +66,8 @@ describe('ResultsView', () => {
   });
 
   it('uses the presenter\'s background colour from the start, and follows live changes and resets', async () => {
-    const wrapper = await mountResults('/results#key=KEY', {
-      'resolve-results-key': { stormCode: 'STORM01', resultsBackground: '#1e293b' },
+    const wrapper = await mountResults('/results#k=KEY', {
+      'resolve-results-key': { stormCode: 'ABCDEFGH', resultsBackground: '#1e293b' },
       'get-storm-state': { status: 'active', currentQuestion: q, tally: { counts: [3, 1], totalVotes: 4 }, showConnect: false },
     });
     const page = () => wrapper.find('.results-page').attributes('style') ?? '';
@@ -89,7 +89,7 @@ describe('ResultsView', () => {
   });
 
   it('shows a countdown, then "Voting closed", beside the Live badge', async () => {
-    const wrapper = await mountResults('/results#key=KEY', {
+    const wrapper = await mountResults('/results#k=KEY', {
       ...resolved,
       'get-storm-state': { status: 'active', currentQuestion: { ...q, votingMsLeft: 90000 }, tally: { counts: [3, 1], totalVotes: 4 }, showConnect: false },
     });
@@ -106,7 +106,7 @@ describe('ResultsView', () => {
   });
 
   it('shows the live question with projector bars and the response count', async () => {
-    const wrapper = await mountResults('/results#key=KEY', {
+    const wrapper = await mountResults('/results#k=KEY', {
       ...resolved,
       'get-storm-state': { status: 'active', currentQuestion: q, tally: { counts: [3, 1], totalVotes: 4 }, showConnect: false },
     });
@@ -114,25 +114,25 @@ describe('ResultsView', () => {
     expect(wrapper.find('.results-view.projector').exists()).toBe(true);
     expect(wrapper.findAll('.sbar')).toHaveLength(2);
     expect(wrapper.find('.footer').text()).toContain('4 responses');
-    expect(wrapper.find('.footer').text()).toContain('Storm code STORM01');
+    expect(wrapper.find('.footer').text()).toContain('Storm code ABCD EFGH');
     expect(wrapper.find('button').exists()).toBe(false);
   });
 
   it('shows "Results not found" for an unknown key', async () => {
     const { ApiError } = await import('@/api');
-    const wrapper = await mountResults('/results#key=BAD', { 'resolve-results-key': new ApiError('Results not found', 404) });
+    const wrapper = await mountResults('/results#k=BAD', { 'resolve-results-key': new ApiError('Results not found', 404) });
     expect(wrapper.find('.alert').text()).toBe('Results not found.');
   });
 
   it('shows the join screen when the server says so, with the live connected count', async () => {
-    const wrapper = await mountResults('/results#key=KEY', {
+    const wrapper = await mountResults('/results#k=KEY', {
       ...resolved,
       'get-storm-state': { status: 'lobby', currentQuestion: null, tally: null, showConnect: true },
     });
     const screen = wrapper.find('.connect-screen');
     expect((screen.element as HTMLElement).style.display).not.toBe('none');
     expect(screen.text()).toContain('Scan to vote');
-    expect(screen.text()).toContain('localhost:3000/vote/STORM01'.replace('localhost:3000', window.location.host));
+    expect(screen.text()).toContain('localhost:3000/vote/ABCDEFGH'.replace('localhost:3000', window.location.host));
     expect(screen.text()).toContain('0 people connected');
     channel.opts.onPresence!(1);
     await flushPromises();
@@ -143,7 +143,7 @@ describe('ResultsView', () => {
   });
 
   it('updates bars live from tally events', async () => {
-    const wrapper = await mountResults('/results#key=KEY', {
+    const wrapper = await mountResults('/results#k=KEY', {
       ...resolved,
       'get-storm-state': { status: 'active', currentQuestion: q, tally: { counts: [0, 0], totalVotes: 0 }, showConnect: false },
     });
@@ -156,7 +156,7 @@ describe('ResultsView', () => {
   });
 
   it('shows only a big response counter while results are hidden', async () => {
-    const wrapper = await mountResults('/results#key=KEY', {
+    const wrapper = await mountResults('/results#k=KEY', {
       ...resolved,
       'get-storm-state': { status: 'active', currentQuestion: { ...q, resultsHidden: true }, tally: { totalVotes: 3, hidden: true }, showConnect: false },
     });
@@ -166,7 +166,7 @@ describe('ResultsView', () => {
   });
 
   it('shows the swipeable results with no buttons once the storm is closed', async () => {
-    const wrapper = await mountResults('/results#key=KEY', {
+    const wrapper = await mountResults('/results#k=KEY', {
       ...resolved,
       'get-storm-state': { status: 'closed', currentQuestion: null, tally: null, showConnect: false },
       'get-storm-results': { questions: [{ ...q, tally: { counts: [1, 2], totalVotes: 3 } }] },
@@ -179,7 +179,7 @@ describe('ResultsView', () => {
   });
 
   it('a pinned link activates its question using the results key, then shows it', async () => {
-    const wrapper = await mountResults('/results#key=KEY&q=5', {
+    const wrapper = await mountResults('/results#k=KEY&q=5', {
       ...resolved,
       'results-activate': { ok: true },
       'get-question-results': { status: 'active', live: true, question: q, tally: { counts: [1, 0], totalVotes: 1 } },
@@ -193,7 +193,7 @@ describe('ResultsView', () => {
 
   it('a pinned link shows only a message when its question is not live, and follows it when it goes live', async () => {
     let live = false;
-    const wrapper = await mountResults('/results#key=KEY&q=5', {
+    const wrapper = await mountResults('/results#k=KEY&q=5', {
       ...resolved,
       'results-activate': { ok: true },
       'get-question-results': () => (live
@@ -210,7 +210,7 @@ describe('ResultsView', () => {
   });
 
   it('a pinned link ignores the join screen toggle', async () => {
-    const wrapper = await mountResults('/results#key=KEY&q=5', {
+    const wrapper = await mountResults('/results#k=KEY&q=5', {
       ...resolved,
       'results-activate': { ok: true },
       'get-question-results': { status: 'active', live: true, question: q, tally: { counts: [0, 0], totalVotes: 0 } },
@@ -224,7 +224,7 @@ describe('ResultsView', () => {
     let release: (v: unknown) => void = () => {};
     apiMock.mockImplementation((path: string) => (path.startsWith('resolve-results-key') ? new Promise((r) => (release = r)) : Promise.resolve({})));
     const router = createRouter({ history: createMemoryHistory(), routes });
-    router.push('/results#key=KEY');
+    router.push('/results#k=KEY');
     await router.isReady();
     const wrapper = mount(ResultsView, { global: { plugins: [router] } });
     await flushPromises();

@@ -31,7 +31,7 @@ describe('describeActivity', () => {
 
   it('stays quiet for reads and for things the page does by itself', () => {
     expect(describeActivity('get-storm-state?stormCode=X', 'GET')).toBeNull();
-    expect(describeActivity('admin-storm?adminKey=k', 'GET')).toBeNull();
+    expect(describeActivity('admin-storm', 'GET')).toBeNull();
     expect(describeActivity('results-activate', 'POST', '{}')).toBeNull();
     expect(describeActivity('ably-token?stormCode=X', 'GET')).toBeNull();
   });
@@ -169,7 +169,7 @@ describe('api() reports user-triggered requests', () => {
   it('says nothing for reads and background calls', async () => {
     fetchMock.mockImplementation(async () => ok());
     await api('get-storm-state?stormCode=X');
-    await api('admin-storm?adminKey=k');
+    await api('admin-storm');
     await api('results-activate', { method: 'POST', body: '{}' });
     vi.advanceTimersByTime(SHOW_DELAY_MS + 10);
     expect(activity.value).toBeNull();

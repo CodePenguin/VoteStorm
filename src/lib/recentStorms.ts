@@ -1,9 +1,9 @@
-// Storms this browser has created or opened, so a lost tab or an unrecorded link is easy to get back to. The admin key
-// is kept here, on the device, and nowhere on the server beyond its hash.
+// Storms this browser has created or opened, so a lost tab or an unrecorded link is easy to get back to. The presenter
+// secret is kept here, on the device, and nowhere on the server.
 
 export interface RecentStorm {
-  adminKey: string;
   stormCode: string;
+  secret: string;
   name: string | null;
   lastOpenedAt: number;
 }
@@ -14,7 +14,7 @@ export const MAX_RECENT = 50;
 const isEntry = (value: unknown): value is RecentStorm => {
   const e = value as Partial<RecentStorm> | null;
   return (
-    !!e && typeof e.adminKey === 'string' && e.adminKey.length > 0 && typeof e.stormCode === 'string' &&
+    !!e && typeof e.secret === 'string' && e.secret.length > 0 && typeof e.stormCode === 'string' &&
     (e.name === null || typeof e.name === 'string') && typeof e.lastOpenedAt === 'number'
   );
 };
@@ -38,16 +38,16 @@ export function loadRecent(): RecentStorm[] {
 }
 
 /** Adds a Storm, or refreshes it and moves it to the top. */
-export function rememberStorm(entry: { adminKey: string; stormCode: string; name?: string | null }, now = Date.now()) {
-  const others = loadRecent().filter((e) => e.adminKey !== entry.adminKey);
-  save([{ adminKey: entry.adminKey, stormCode: entry.stormCode, name: entry.name ?? null, lastOpenedAt: now }, ...others]);
+export function rememberStorm(entry: { stormCode: string; secret: string; name?: string | null }, now = Date.now()) {
+  const others = loadRecent().filter((e) => e.stormCode !== entry.stormCode);
+  save([{ stormCode: entry.stormCode, secret: entry.secret, name: entry.name ?? null, lastOpenedAt: now }, ...others]);
 }
 
 /** Changes what is shown for a Storm without moving it in the list. */
-export function renameRemembered(adminKey: string, name: string | null) {
-  save(loadRecent().map((e) => (e.adminKey === adminKey ? { ...e, name } : e)));
+export function renameRemembered(stormCode: string, name: string | null) {
+  save(loadRecent().map((e) => (e.stormCode === stormCode ? { ...e, name } : e)));
 }
 
-export function forgetStorm(adminKey: string) {
-  save(loadRecent().filter((e) => e.adminKey !== adminKey));
+export function forgetStorm(stormCode: string) {
+  save(loadRecent().filter((e) => e.stormCode !== stormCode));
 }

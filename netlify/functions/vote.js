@@ -93,7 +93,7 @@ export async function handler(event) {
   const tally = computeTally(question, votesResult.rows);
 
   const shown = publicTally(question, tally);
-  await publishEvent(stormCode, 'tally', { questionId, ...shown });
+  await publishEvent(storm.storm_code, 'tally', { questionId, ...shown });
 
   return json(200, { ok: true, tally: shown });
 }

@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
+import type { AdminSession } from '@/lib/adminRequest';
 import type { PresenterStore } from '@/composables/usePresenter';
 import { parseHexColor } from '@/lib/color';
 import LicenseLimitsList from '@/components/LicenseLimitsList.vue';
 
 const props = defineProps<{ store: PresenterStore }>();
-const emit = defineEmits<{ deleted: []; duplicated: [adminKey: string] }>();
+const emit = defineEmits<{ deleted: []; duplicated: [copy: AdminSession] }>();
 
 const DEFAULT_SWATCH = '#0b1120';
 const background = computed(() => props.store.resultsBackground.value);

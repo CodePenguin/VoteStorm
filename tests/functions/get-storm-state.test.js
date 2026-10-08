@@ -3,7 +3,7 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createDb, initSchema } from '../../lib/db.js';
-import { generateAdminKey, hashAdminKey, deriveStormCode } from '../../lib/stormCode.js';
+import { seedStorm } from '../helpers/admin.js';
 import { handler } from '../../netlify/functions/get-storm-state.js';
 
 describe('get-storm-state function', () => {
@@ -14,12 +14,7 @@ describe('get-storm-state function', () => {
     process.env.TURSO_DATABASE_URL = `file:${path.join(dir, 'test.db')}`;
     const db = createDb();
     await initSchema(db);
-    const adminKey = generateAdminKey();
-    stormCode = deriveStormCode(adminKey);
-    await db.execute({
-      sql: `INSERT INTO storms (admin_key_hash, storm_code, status, current_question_id, created_at, license_json) VALUES (?, ?, 'active', 1, ?, '{"id":"anonymous","name":"Anonymous","tier":"anonymous","expiresAt":null,"stormInactivityHours":24}')`,
-      args: [hashAdminKey(adminKey), stormCode, Date.now()],
-    });
+    stormCode = (await seedStorm(db, { status: 'active', current_question_id: 1 })).stormCode;
     await db.execute({
       sql: `INSERT INTO questions (id, storm_code, order_index, type, prompt, options, created_at) VALUES (1, ?, 0, 'choice', 'Pick one', ?, ?)`,
       args: [stormCode, JSON.stringify(['A', 'B']), Date.now()],

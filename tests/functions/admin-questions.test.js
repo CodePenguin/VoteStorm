@@ -9,24 +9,20 @@ vi.mock('../../lib/realtime.js', () => ({
 }));
 
 import { createDb, initSchema, getStormByCode } from '../../lib/db.js';
-import { generateAdminKey, hashAdminKey, deriveStormCode } from '../../lib/stormCode.js';
+import { seedStorm } from '../helpers/admin.js';
 import { handler } from '../../netlify/functions/admin-questions.js';
 import { publishEvent } from '../../lib/realtime.js';
 
 describe('admin-questions function', () => {
-  let adminKey;
+  let admin;
+  const call = (event) => admin.call(handler, 'admin-questions', event);
 
   beforeEach(async () => {
     const dir = mkdtempSync(path.join(tmpdir(), 'votestorm-test-'));
     process.env.TURSO_DATABASE_URL = `file:${path.join(dir, 'test.db')}`;
     const db = createDb();
     await initSchema(db);
-    adminKey = generateAdminKey();
-    const stormCode = deriveStormCode(adminKey);
-    await db.execute({
-      sql: `INSERT INTO storms (admin_key_hash, storm_code, status, created_at, license_json) VALUES (?, ?, 'lobby', ?, '{"id":"anonymous","name":"Anonymous","tier":"anonymous","expiresAt":null,"stormInactivityHours":24}')`,
-      args: [hashAdminKey(adminKey), stormCode, Date.now()],
-    });
+    admin = await seedStorm(db);
     vi.clearAllMocks();
   });
 
@@ -34,69 +30,85 @@ describe('admin-questions function', () => {
     delete process.env.TURSO_DATABASE_URL;
   });
 
-  it('rejects requests with a bad admin key', async () => {
-    const res = await handler({ httpMethod: 'GET', headers: { 'x-admin-key': 'wrong' } });
+  it('rejects an unsigned request', async () => {
+    const res = await handler({ httpMethod: 'GET', headers: {} });
+    expect(res.statusCode).toBe(401);
+    expect(JSON.parse(res.body)).toEqual({ error: 'Invalid admin credentials' });
+  });
+
+  it('rejects the old x-admin-key header', async () => {
+    const res = await handler({ httpMethod: 'GET', headers: { 'x-admin-key': 'a'.repeat(48) } });
+    expect(res.statusCode).toBe(401);
+  });
+
+  it('rejects a request signed for the other admin function', async () => {
+    const res = await handler(await admin.sign('admin-storm', { httpMethod: 'GET' }));
     expect(res.statusCode).toBe(401);
   });
 
   it('creates and lists a choice question', async () => {
-    const createRes = await handler({
+    const createRes = await call({
       httpMethod: 'POST',
-      body: JSON.stringify({ adminKey, type: 'choice', prompt: 'Pick one', options: ['A', 'B'] }),
+      body: JSON.stringify({ type: 'choice', prompt: 'Pick one', options: ['A', 'B'] }),
     });
     expect(createRes.statusCode).toBe(200);
 
-    const listRes = await handler({ httpMethod: 'GET', headers: { 'x-admin-key': adminKey } });
+    const listRes = await call({ httpMethod: 'GET' });
     const { questions } = JSON.parse(listRes.body);
     expect(questions).toHaveLength(1);
     expect(questions[0].prompt).toBe('Pick one');
   });
 
   it('resets votes for a question', async () => {
-    const createRes = await handler({
+    const createRes = await call({
       httpMethod: 'POST',
-      body: JSON.stringify({ adminKey, type: 'choice', prompt: 'Pick one', options: ['A', 'B'] }),
+      body: JSON.stringify({ type: 'choice', prompt: 'Pick one', options: ['A', 'B'] }),
     });
     const { id } = JSON.parse(createRes.body);
 
-    const resetRes = await handler({
+    const resetRes = await call({
       httpMethod: 'PATCH',
-      body: JSON.stringify({ adminKey, questionId: id, action: 'reset' }),
+      body: JSON.stringify({ questionId: id, action: 'reset' }),
     });
     expect(resetRes.statusCode).toBe(200);
   });
 
   it('deletes a question', async () => {
-    const createRes = await handler({
+    const createRes = await call({
       httpMethod: 'POST',
-      body: JSON.stringify({ adminKey, type: 'choice', prompt: 'Pick one', options: ['A', 'B'] }),
+      body: JSON.stringify({ type: 'choice', prompt: 'Pick one', options: ['A', 'B'] }),
     });
     const { id } = JSON.parse(createRes.body);
 
-    const deleteRes = await handler({ httpMethod: 'DELETE', body: JSON.stringify({ adminKey, questionId: id }) });
+    const deleteRes = await call({ httpMethod: 'DELETE', body: JSON.stringify({ questionId: id }) });
     expect(deleteRes.statusCode).toBe(200);
 
-    const listRes = await handler({ httpMethod: 'GET', headers: { 'x-admin-key': adminKey } });
+    const listRes = await call({ httpMethod: 'GET' });
     const { questions } = JSON.parse(listRes.body);
     expect(questions).toHaveLength(0);
   });
 
   it('rejects malformed JSON bodies with a 400', async () => {
-    const res = await handler({ httpMethod: 'POST', body: '{not valid json' });
+    const res = await call({ httpMethod: 'POST', body: '{not valid json' });
     expect(res.statusCode).toBe(400);
     expect(JSON.parse(res.body)).toEqual({ error: 'Invalid JSON' });
   });
 
+  it('answers an unsigned request with a malformed body 401, not 400', async () => {
+    const res = await handler({ httpMethod: 'POST', headers: {}, body: '{not valid json' });
+    expect(res.statusCode).toBe(401);
+  });
+
   it('publishes tally and reset events with the correct payloads on reset', async () => {
-    const createRes = await handler({
+    const createRes = await call({
       httpMethod: 'POST',
-      body: JSON.stringify({ adminKey, type: 'choice', prompt: 'Pick one', options: ['A', 'B', 'C'] }),
+      body: JSON.stringify({ type: 'choice', prompt: 'Pick one', options: ['A', 'B', 'C'] }),
     });
     const { id } = JSON.parse(createRes.body);
 
-    const resetRes = await handler({
+    const resetRes = await call({
       httpMethod: 'PATCH',
-      body: JSON.stringify({ adminKey, questionId: id, action: 'reset' }),
+      body: JSON.stringify({ questionId: id, action: 'reset' }),
     });
     expect(resetRes.statusCode).toBe(200);
 
@@ -109,24 +121,24 @@ describe('admin-questions function', () => {
   });
 
   it('clears current_question_id and publishes a state event when the current question is deleted', async () => {
-    const createRes = await handler({
+    const createRes = await call({
       httpMethod: 'POST',
-      body: JSON.stringify({ adminKey, type: 'choice', prompt: 'Pick one', options: ['A', 'B'] }),
+      body: JSON.stringify({ type: 'choice', prompt: 'Pick one', options: ['A', 'B'] }),
     });
     const { id } = JSON.parse(createRes.body);
 
     const db = createDb();
     await db.execute({
-      sql: 'UPDATE storms SET current_question_id = ?, status = ? WHERE admin_key_hash = ?',
-      args: [id, 'active', hashAdminKey(adminKey)],
+      sql: 'UPDATE storms SET current_question_id = ?, status = ? WHERE storm_code = ?',
+      args: [id, 'active', admin.stormCode],
     });
 
-    const deleteRes = await handler({ httpMethod: 'DELETE', body: JSON.stringify({ adminKey, questionId: id }) });
+    const deleteRes = await call({ httpMethod: 'DELETE', body: JSON.stringify({ questionId: id }) });
     expect(deleteRes.statusCode).toBe(200);
 
     const stormResult = await db.execute({
-      sql: 'SELECT current_question_id FROM storms WHERE admin_key_hash = ?',
-      args: [hashAdminKey(adminKey)],
+      sql: 'SELECT current_question_id FROM storms WHERE storm_code = ?',
+      args: [admin.stormCode],
     });
     expect(stormResult.rows[0].current_question_id).toBeNull();
 
@@ -137,116 +149,95 @@ describe('admin-questions function', () => {
     );
   });
 
-  it('rejects POST with a bad admin key', async () => {
-    const res = await handler({
-      httpMethod: 'POST',
-      body: JSON.stringify({ adminKey: 'wrong', type: 'choice', prompt: 'Pick one', options: ['A', 'B'] }),
-    });
-    expect(res.statusCode).toBe(401);
-  });
-
-  it('rejects PATCH with a bad admin key', async () => {
-    const res = await handler({
-      httpMethod: 'PATCH',
-      body: JSON.stringify({ adminKey: 'wrong', questionId: 1, action: 'reset' }),
-    });
-    expect(res.statusCode).toBe(401);
-  });
-
-  it('rejects DELETE with a bad admin key', async () => {
-    const res = await handler({
-      httpMethod: 'DELETE',
-      body: JSON.stringify({ adminKey: 'wrong', questionId: 1 }),
-    });
-    expect(res.statusCode).toBe(401);
+  it('rejects POST, PATCH and DELETE that are not signed', async () => {
+    for (const [httpMethod, body] of [
+      ['POST', { type: 'choice', prompt: 'Pick one', options: ['A', 'B'] }],
+      ['PATCH', { questionId: 1, action: 'reset' }],
+      ['DELETE', { questionId: 1 }],
+    ]) {
+      const res = await handler({ httpMethod, headers: {}, body: JSON.stringify(body) });
+      expect(res.statusCode).toBe(401);
+    }
   });
 
   it('prevents an admin from mutating another storm\'s question (cross-storm IDOR)', async () => {
-    const createResA = await handler({
+    const createResA = await call({
       httpMethod: 'POST',
-      body: JSON.stringify({ adminKey, type: 'choice', prompt: 'Storm A question', options: ['A', 'B'] }),
+      body: JSON.stringify({ type: 'choice', prompt: 'Storm A question', options: ['A', 'B'] }),
     });
     const { id } = JSON.parse(createResA.body);
 
-    const adminKeyB = generateAdminKey();
-    const stormCodeB = deriveStormCode(adminKeyB);
-    const db = createDb();
-    await db.execute({
-      sql: `INSERT INTO storms (admin_key_hash, storm_code, status, created_at, license_json) VALUES (?, ?, 'lobby', ?, '{"id":"anonymous","name":"Anonymous","tier":"anonymous","expiresAt":null,"stormInactivityHours":24}')`,
-      args: [hashAdminKey(adminKeyB), stormCodeB, Date.now()],
-    });
+    const adminB = await seedStorm(createDb());
+    const callB = (event) => adminB.call(handler, 'admin-questions', event);
 
-    const patchRes = await handler({
+    const patchRes = await callB({
       httpMethod: 'PATCH',
-      body: JSON.stringify({ adminKey: adminKeyB, questionId: id, prompt: 'Hijacked' }),
+      body: JSON.stringify({ questionId: id, prompt: 'Hijacked' }),
     });
     expect(patchRes.statusCode).toBe(404);
     expect(JSON.parse(patchRes.body)).toEqual({ error: 'Question not found' });
 
-    const deleteRes = await handler({
+    const deleteRes = await callB({
       httpMethod: 'DELETE',
-      body: JSON.stringify({ adminKey: adminKeyB, questionId: id }),
+      body: JSON.stringify({ questionId: id }),
     });
     expect(deleteRes.statusCode).toBe(404);
 
-    const resetRes = await handler({
+    const resetRes = await callB({
       httpMethod: 'PATCH',
-      body: JSON.stringify({ adminKey: adminKeyB, questionId: id, action: 'reset' }),
+      body: JSON.stringify({ questionId: id, action: 'reset' }),
     });
     expect(resetRes.statusCode).toBe(404);
 
-    const listRes = await handler({ httpMethod: 'GET', headers: { 'x-admin-key': adminKey } });
+    const listRes = await call({ httpMethod: 'GET' });
     const { questions } = JSON.parse(listRes.body);
     expect(questions).toHaveLength(1);
     expect(questions[0].prompt).toBe('Storm A question');
   });
 
   it('bumps last_activity_at to now on POST (create question)', async () => {
-    const stormCode = deriveStormCode(adminKey);
     const db = createDb();
-    await db.execute({ sql: 'UPDATE storms SET last_activity_at = ? WHERE storm_code = ?', args: [Date.now() - 3600000, stormCode] });
+    await db.execute({ sql: 'UPDATE storms SET last_activity_at = ? WHERE storm_code = ?', args: [Date.now() - 3600000, admin.stormCode] });
 
-    await handler({
+    await call({
       httpMethod: 'POST',
-      body: JSON.stringify({ adminKey, type: 'choice', prompt: 'Pick one', options: ['A', 'B'] }),
+      body: JSON.stringify({ type: 'choice', prompt: 'Pick one', options: ['A', 'B'] }),
     });
 
-    const storm = await getStormByCode(db, stormCode);
+    const storm = await getStormByCode(db, admin.stormCode);
     expect(Number(storm.last_activity_at)).toBeGreaterThan(Date.now() - 60000);
   });
 
   it('bumps last_activity_at to now on PATCH (edit question)', async () => {
-    const stormCode = deriveStormCode(adminKey);
     const db = createDb();
-    const createRes = await handler({
+    const createRes = await call({
       httpMethod: 'POST',
-      body: JSON.stringify({ adminKey, type: 'choice', prompt: 'Pick one', options: ['A', 'B'] }),
+      body: JSON.stringify({ type: 'choice', prompt: 'Pick one', options: ['A', 'B'] }),
     });
     const { id } = JSON.parse(createRes.body);
-    await db.execute({ sql: 'UPDATE storms SET last_activity_at = ? WHERE storm_code = ?', args: [Date.now() - 3600000, stormCode] });
+    await db.execute({ sql: 'UPDATE storms SET last_activity_at = ? WHERE storm_code = ?', args: [Date.now() - 3600000, admin.stormCode] });
 
-    await handler({
+    await call({
       httpMethod: 'PATCH',
-      body: JSON.stringify({ adminKey, questionId: id, prompt: 'Updated prompt' }),
+      body: JSON.stringify({ questionId: id, prompt: 'Updated prompt' }),
     });
 
-    const storm = await getStormByCode(db, stormCode);
+    const storm = await getStormByCode(db, admin.stormCode);
     expect(Number(storm.last_activity_at)).toBeGreaterThan(Date.now() - 60000);
   });
 
   it('bumps last_activity_at to now on DELETE (remove question)', async () => {
-    const stormCode = deriveStormCode(adminKey);
     const db = createDb();
-    const createRes = await handler({
+    const createRes = await call({
       httpMethod: 'POST',
-      body: JSON.stringify({ adminKey, type: 'choice', prompt: 'Pick one', options: ['A', 'B'] }),
+      body: JSON.stringify({ type: 'choice', prompt: 'Pick one', options: ['A', 'B'] }),
     });
     const { id } = JSON.parse(createRes.body);
-    await db.execute({ sql: 'UPDATE storms SET last_activity_at = ? WHERE storm_code = ?', args: [Date.now() - 3600000, stormCode] });
+    await db.execute({ sql: 'UPDATE storms SET last_activity_at = ? WHERE storm_code = ?', args: [Date.now() - 3600000, admin.stormCode] });
 
-    await handler({ httpMethod: 'DELETE', body: JSON.stringify({ adminKey, questionId: id }) });
+    await call({ httpMethod: 'DELETE', body: JSON.stringify({ questionId: id }) });
 
-    const storm = await getStormByCode(db, stormCode);
+    const storm = await getStormByCode(db, admin.stormCode);
     expect(Number(storm.last_activity_at)).toBeGreaterThan(Date.now() - 60000);
   });
 });
@@ -262,10 +253,11 @@ describe('question display type', () => {
 });
 
 describe('question editing', () => {
-  let adminKey;
+  let admin;
   let stormCode;
   let qid;
-  const call = (body) => handler({ httpMethod: 'PATCH', body: JSON.stringify({ adminKey, questionId: qid, ...body }) });
+  const signed = (event) => admin.call(handler, 'admin-questions', event);
+  const call = (body) => signed({ httpMethod: 'PATCH', body: JSON.stringify({ questionId: qid, ...body }) });
   const edit = (fields) => call({ edit: { type: 'choice', prompt: 'Pick', options: ['A', 'B'], ...fields } });
 
   beforeEach(async () => {
@@ -273,13 +265,9 @@ describe('question editing', () => {
     process.env.TURSO_DATABASE_URL = `file:${path.join(dir, 'test.db')}`;
     const db = createDb();
     await initSchema(db);
-    adminKey = generateAdminKey();
-    stormCode = deriveStormCode(adminKey);
-    await db.execute({
-      sql: `INSERT INTO storms (admin_key_hash, storm_code, status, created_at, license_json) VALUES (?, ?, 'lobby', ?, '{"id":"anonymous","name":"Anonymous","tier":"anonymous","expiresAt":null,"stormInactivityHours":24}')`,
-      args: [hashAdminKey(adminKey), stormCode, Date.now()],
-    });
-    const created = await handler({ httpMethod: 'POST', body: JSON.stringify({ adminKey, type: 'choice', prompt: 'Pick', options: ['A', 'B'] }) });
+    admin = await seedStorm(db);
+    stormCode = admin.stormCode;
+    const created = await signed({ httpMethod: 'POST', body: JSON.stringify({ type: 'choice', prompt: 'Pick', options: ['A', 'B'] }) });
     qid = JSON.parse(created.body).id;
     await db.execute({ sql: 'INSERT INTO votes (question_id, device_id, value, created_at) VALUES (?, ?, ?, ?)', args: [qid, 'd1', '0', Date.now()] });
     vi.clearAllMocks();

@@ -1,8 +1,7 @@
-import { createDb, initSchema, getStormByAdminKeyHash, touchStormActivity, deleteStormCascade, deleteVotesForStorm, connectVisible, resultsBackground } from '../../lib/db.js';
+import { createDb, initSchema, touchStormActivity, deleteStormCascade, deleteVotesForStorm, connectVisible, resultsBackground } from '../../lib/db.js';
 import { normalizeHexColor } from '../../lib/color.js';
-import { adminKeyFrom } from '../../lib/adminKey.js';
+import { verifyAdmin } from '../../lib/adminAuth.js';
 import { MAX_NAME_LENGTH, normalizeStormName } from '../../lib/storms.js';
-import { hashAdminKey, deriveResultsKey, hashResultsKey } from '../../lib/stormCode.js';
 import { applyPresentedLicense, describeLicense } from '../../lib/license.js';
 import { computeTally } from '../../lib/tally.js';
 import { publishEvent } from '../../lib/realtime.js';
@@ -13,17 +12,16 @@ export async function handler(event) {
   const db = createDb();
   await initSchema(db);
 
+  const auth = await verifyAdmin(event, db, 'admin-storm');
+  if (auth.response) return auth.response;
+  const { storm } = auth;
+
   let bodyData;
   try {
     bodyData = event.body ? JSON.parse(event.body) : {};
   } catch {
     return json(400, { error: 'Invalid JSON' });
   }
-  const adminKey = adminKeyFrom(event, bodyData);
-  if (!adminKey) return json(401, { error: 'Invalid admin key' });
-
-  const storm = await getStormByAdminKeyHash(db, hashAdminKey(adminKey));
-  if (!storm) return json(401, { error: 'Invalid admin key' });
 
   const license = await applyPresentedLicense(db, storm, event);
 
@@ -37,12 +35,7 @@ export async function handler(event) {
       const votesResult = await db.execute({ sql: 'SELECT * FROM votes WHERE question_id = ?', args: [question.id] });
       questions.push({ ...question, voting_ms_left: votingMsLeft(question), tally: computeTally(question, votesResult.rows) });
     }
-    const resultsKey = deriveResultsKey(adminKey);
-    const resultsKeyHash = hashResultsKey(resultsKey);
-    if (storm.results_key_hash !== resultsKeyHash) {
-      await db.execute({ sql: 'UPDATE storms SET results_key_hash = ? WHERE storm_code = ?', args: [resultsKeyHash, storm.storm_code] });
-    }
-    return json(200, { storm, questions, showConnect: connectVisible(storm), resultsBackground: resultsBackground(storm), resultsKey, license: describeLicense(license) });
+    return json(200, { storm, questions, showConnect: connectVisible(storm), resultsBackground: resultsBackground(storm), license: describeLicense(license) });
   }
 
   if (event.httpMethod === 'PATCH') {

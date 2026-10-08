@@ -18,9 +18,10 @@ vi.mock('@/api', () => ({
   },
 }));
 
-const channel = { handlers: {} as Record<string, (d: any) => void>, close: vi.fn() };
+const channel = { code: '', handlers: {} as Record<string, (d: any) => void>, close: vi.fn() };
 vi.mock('@/composables/useStormChannel', () => ({
-  subscribeStorm: (_code: string, handlers: Record<string, (d: any) => void>) => {
+  subscribeStorm: (code: string, handlers: Record<string, (d: any) => void>) => {
+    channel.code = code;
     channel.handlers = handlers;
     return { close: channel.close };
   },
@@ -55,6 +56,17 @@ describe('VoteView', () => {
   beforeEach(() => {
     localStorage.clear();
     apiMock.mockReset();
+  });
+
+  it('accepts a spaced or lower-case code and uses the stored form for requests and the channel', async () => {
+    apiMock.mockImplementation(async () => state());
+    const router = createRouter({ history: createMemoryHistory(), routes });
+    router.push('/vote/abcd-efgh');
+    await router.isReady();
+    mount(VoteView, { global: { plugins: [router] } });
+    await flushPromises();
+    expect(apiMock.mock.calls.map((c) => c[0])).toContain('get-storm-state?stormCode=ABCDEFGH');
+    expect(channel.code).toBe('ABCDEFGH');
   });
 
   it('waits when no question is live', async () => {

@@ -1,56 +1,64 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { webcrypto } from 'node:crypto';
 
 vi.mock('../../lib/stormCode.js', async (importOriginal) => {
   const actual = await importOriginal();
-  return { ...actual, generateAdminKey: vi.fn(actual.generateAdminKey) };
+  return { ...actual, generateStormCode: vi.fn(actual.generateStormCode) };
 });
 
-import { generateAdminKey, deriveStormCode } from '../../lib/stormCode.js';
+import { generateStormCode } from '../../lib/stormCode.js';
 import { createDb, initSchema } from '../../lib/db.js';
-import { handler } from '../../netlify/functions/create-storm.js';
+import { insertStorm } from '../../lib/storms.js';
+
+const LICENSE = { id: 'anonymous', name: 'Anonymous', tier: 'anonymous', expiresAt: null, stormInactivityHours: 24 };
+const RESULTS_KEY_HASH = 'a'.repeat(64);
+
+async function newPublicKey() {
+  const pair = await webcrypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign', 'verify']);
+  return Buffer.from(await webcrypto.subtle.exportKey('raw', pair.publicKey)).toString('base64url');
+}
 
 describe('storm code collisions', () => {
   let db;
-  const takenKey = 'a'.repeat(48);
-  const freshKey = 'b'.repeat(48);
+  const takenCode = 'TAKEN234';
+  const freshCode = 'FRESH567';
 
   beforeEach(async () => {
     const dir = mkdtempSync(path.join(tmpdir(), 'votestorm-test-'));
-    process.env.TURSO_DATABASE_URL = `file:${path.join(dir, 'test.db')}`;
-    db = createDb();
+    db = createDb(`file:${path.join(dir, 'test.db')}`);
     await initSchema(db);
-    // Another storm already holds the short code that takenKey would produce.
+    // Another storm already holds takenCode.
     await db.execute({
-      sql: `INSERT INTO storms (admin_key_hash, storm_code, status, created_at, last_activity_at, license_json) VALUES (?, ?, 'lobby', ?, ?, '{"id":"anonymous","name":"Anonymous","tier":"anonymous","expiresAt":null,"stormInactivityHours":24}')`,
-      args: ['someone-elses-hash', deriveStormCode(takenKey), Date.now(), Date.now()],
+      sql: `INSERT INTO storms (admin_key_hash, admin_public_key, storm_code, status, created_at, last_activity_at, license_json) VALUES (?, 'pk', ?, 'lobby', ?, ?, '{"id":"anonymous","name":"Anonymous","tier":"anonymous","expiresAt":null,"stormInactivityHours":24}')`,
+      args: ['someone-elses-hash', takenCode, Date.now(), Date.now()],
     });
-    generateAdminKey.mockReset();
+    generateStormCode.mockReset();
   });
 
-  afterEach(() => {
-    delete process.env.TURSO_DATABASE_URL;
-  });
-
-  it('draws another key when the short code is already in use', async () => {
-    generateAdminKey.mockReturnValueOnce(takenKey).mockReturnValueOnce(freshKey);
-    const res = await handler({ httpMethod: 'POST', headers: {} });
-    expect(res.statusCode).toBe(200);
-    const body = JSON.parse(res.body);
-    expect(body.adminKey).toBe(freshKey);
-    expect(body.stormCode).toBe(deriveStormCode(freshKey));
-    expect(generateAdminKey).toHaveBeenCalledTimes(2);
+  it('draws another code when the code is already in use', async () => {
+    generateStormCode.mockReturnValueOnce(takenCode).mockReturnValueOnce(takenCode).mockReturnValueOnce(freshCode);
+    const result = await insertStorm(db, LICENSE, { publicKey: await newPublicKey(), resultsKeyHash: RESULTS_KEY_HASH });
+    expect(result).toEqual({ stormCode: freshCode });
+    expect(generateStormCode).toHaveBeenCalledTimes(3);
     expect(Number((await db.execute('SELECT COUNT(*) AS n FROM storms')).rows[0].n)).toBe(2);
   });
 
-  it('gives up with a clear message, instead of an error, if it keeps colliding', async () => {
-    generateAdminKey.mockReturnValue(takenKey);
-    const res = await handler({ httpMethod: 'POST', headers: {} });
-    expect(res.statusCode).toBe(503);
-    expect(JSON.parse(res.body).error).toContain('Could not allocate a Storm code');
-    expect(generateAdminKey).toHaveBeenCalledTimes(5);
+  it('gives up with null if it keeps colliding', async () => {
+    generateStormCode.mockReturnValue(takenCode);
+    const result = await insertStorm(db, LICENSE, { publicKey: await newPublicKey(), resultsKeyHash: RESULTS_KEY_HASH });
+    expect(result).toBeNull();
+    expect(generateStormCode).toHaveBeenCalledTimes(5);
     expect(Number((await db.execute('SELECT COUNT(*) AS n FROM storms')).rows[0].n)).toBe(1);
+  });
+
+  it('reports a public key that already belongs to a Storm as in use', async () => {
+    generateStormCode.mockReturnValue(freshCode);
+    const publicKey = await newPublicKey();
+    expect(await insertStorm(db, LICENSE, { publicKey, resultsKeyHash: RESULTS_KEY_HASH })).toEqual({ stormCode: freshCode });
+    generateStormCode.mockReturnValue('OTHER234');
+    expect(await insertStorm(db, LICENSE, { publicKey, resultsKeyHash: RESULTS_KEY_HASH })).toEqual({ inUse: true });
   });
 });

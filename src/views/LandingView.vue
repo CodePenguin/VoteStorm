@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue';
 import { useRouter } from 'vue-router';
-import { api } from '@/api';
+import { createStorm as makeStorm } from '@/lib/createStorm';
 import { presenterLocation } from '@/lib/fragment';
 import { loadRecent } from '@/lib/recentStorms';
 
@@ -16,8 +16,8 @@ async function createStorm() {
   error.value = null;
   licenseProblem.value = false;
   try {
-    const data = await api<{ adminKey: string }>('create-storm', { method: 'POST' });
-    await router.push(presenterLocation(data.adminKey));
+    const created = await makeStorm();
+    await router.push(presenterLocation(created.stormCode, created.secret));
   } catch (err) {
     error.value = (err as Error)?.message || 'Something went wrong';
     licenseProblem.value = (err as { code?: string }).code === 'license_invalid';

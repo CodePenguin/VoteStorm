@@ -1,10 +1,9 @@
-import { createDb, initSchema, getStormByAdminKeyHash, touchStormActivity, connectVisible, resultsBackground } from '../../lib/db.js';
-import { hashAdminKey } from '../../lib/stormCode.js';
+import { createDb, initSchema, touchStormActivity, connectVisible, resultsBackground } from '../../lib/db.js';
 import { computeTally } from '../../lib/tally.js';
 import { publishEvent } from '../../lib/realtime.js';
 import { shapeQuestion, publicTally } from '../../lib/question.js';
 import { applyPresentedLicense } from '../../lib/license.js';
-import { adminKeyFrom } from '../../lib/adminKey.js';
+import { verifyAdmin } from '../../lib/adminAuth.js';
 import { normalizeQuestionInput } from '../../lib/questionInput.js';
 import { rateLimitByIp } from '../../lib/rateLimit.js';
 import { json } from '../../lib/http.js';
@@ -13,17 +12,16 @@ export async function handler(event) {
   const db = createDb();
   await initSchema(db);
 
+  const auth = await verifyAdmin(event, db, 'admin-questions');
+  if (auth.response) return auth.response;
+  const { storm } = auth;
+
   let bodyData;
   try {
     bodyData = event.body ? JSON.parse(event.body) : {};
   } catch {
     return json(400, { error: 'Invalid JSON' });
   }
-  const adminKey = adminKeyFrom(event, bodyData);
-  if (!adminKey) return json(401, { error: 'Invalid admin key' });
-
-  const storm = await getStormByAdminKeyHash(db, hashAdminKey(adminKey));
-  if (!storm) return json(401, { error: 'Invalid admin key' });
 
   const license = await applyPresentedLicense(db, storm, event);
   if (event.httpMethod !== 'GET') {

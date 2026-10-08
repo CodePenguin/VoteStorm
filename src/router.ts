@@ -11,7 +11,7 @@ declare module 'vue-router' {
 
 export const routes = [
   { path: '/', name: 'landing', component: () => import('./views/LandingView.vue') },
-  { path: '/presenter', name: 'presenter', component: () => import('./views/PresenterView.vue'), meta: { title: 'Presenter' } },
+  { path: '/presenter/:stormCode?', name: 'presenter', component: () => import('./views/PresenterView.vue'), meta: { title: 'Presenter' } },
   { path: '/vote/:stormCode', name: 'vote', component: () => import('./views/VoteView.vue'), meta: { title: 'Vote' } },
   { path: '/results', name: 'results', component: () => import('./views/ResultsView.vue'), meta: { ownFooter: true, title: 'Results' } },
   { path: '/storms', name: 'storms', component: () => import('./views/StormsView.vue'), meta: { title: 'Your Storms' } },

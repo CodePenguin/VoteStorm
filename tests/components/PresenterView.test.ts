@@ -16,19 +16,24 @@ const { FakeApiError } = vi.hoisted(() => ({
   },
 }));
 
-const calls: { path: string; body: any; method?: string; key?: string }[] = [];
+const SECRET = 'a'.repeat(128);
+const NEW_SECRET = 'b'.repeat(128);
+const COPY_SECRET = 'c'.repeat(128);
+
+const calls: { path: string; body: any; method?: string; session?: { stormCode: string; secret: string } }[] = [];
 let data: AdminStormData;
 let failNext: Error | null = null;
+let dataFor: Record<string, AdminStormData> = {};
 
-const apiMock = vi.fn(async (path: string, options: RequestInit = {}) => {
+const apiMock = vi.fn(async (session: { stormCode: string; secret: string }, path: string, options: RequestInit = {}) => {
   const body = options.body ? JSON.parse(options.body as string) : undefined;
-  calls.push({ path, body, method: options.method, key: (options.headers as Record<string, string> | undefined)?.['x-admin-key'] });
+  calls.push({ path, body, method: options.method, session });
   if (failNext && options.method === 'PATCH') {
     const err = failNext;
     failNext = null;
     throw err;
   }
-  if (path === 'admin-storm' && !options.method) return JSON.parse(JSON.stringify(data));
+  if (path === 'admin-storm' && !options.method) return JSON.parse(JSON.stringify(dataFor[session.stormCode] ?? data));
   if (path === 'admin-storm' && options.method === 'PATCH' && body.currentQuestionId) {
     data.storm.current_question_id = body.currentQuestionId;
     data.storm.status = 'active';
@@ -36,17 +41,27 @@ const apiMock = vi.fn(async (path: string, options: RequestInit = {}) => {
   if (path === 'admin-storm' && options.method === 'PATCH' && body.questionId && body.resultsHidden !== undefined) {
     data.questions.find((q) => q.id === body.questionId)!.results_hidden = body.resultsHidden ? 1 : 0;
   }
-  if (path === 'create-storm') return { adminKey: 'NEWKEY', stormCode: 'NEW001' };
-  if (path === 'duplicate-storm') return { adminKey: 'COPYKEY', stormCode: 'COPY01' };
+  if (path === 'duplicate-storm') return { stormCode: 'COPY0001' };
   return { ok: true };
 });
-vi.mock('@/api', () => ({ api: (...a: [string, RequestInit?]) => apiMock(...a), getDeviceId: () => 'd', ApiError: FakeApiError }));
+vi.mock('@/api', () => ({ api: vi.fn(), getDeviceId: () => 'd', ApiError: FakeApiError }));
+vi.mock('@/lib/adminRequest', () => ({ signedApi: (...a: [any, string, RequestInit?]) => apiMock(...a) }));
 
-const channel = { handlers: {} as Record<string, (d: any) => void>, close: vi.fn() };
+const createStormMock = vi.fn(async () => ({ stormCode: 'NEW00001', secret: NEW_SECRET }));
+vi.mock('@/lib/createStorm', () => ({ createStorm: () => createStormMock() }));
+
+vi.mock('@/lib/adminKeys', () => ({
+  describeSecret: async () => ({ secret: 'x', publicKey: 'PUB', resultsKey: 'RESKEY', resultsKeyHash: 'HASH' }),
+  generateAdminSecret: async () => ({ secret: COPY_SECRET, publicKey: 'COPYPUB', resultsKey: 'COPYRES', resultsKeyHash: 'COPYHASH' }),
+}));
+
+const channel = { handlers: {} as Record<string, (d: any) => void>, close: vi.fn(), subscriptions: [] as { code: string; close: ReturnType<typeof vi.fn> }[] };
 vi.mock('@/composables/useStormChannel', () => ({
-  subscribeStorm: (_c: string, handlers: Record<string, (d: any) => void>) => {
+  subscribeStorm: (code: string, handlers: Record<string, (d: any) => void>) => {
     channel.handlers = handlers;
-    return { close: channel.close };
+    const close = vi.fn();
+    channel.subscriptions.push({ code, close });
+    return { close: (...a: unknown[]) => (channel.close(...a), close()) };
   },
 }));
 
@@ -56,12 +71,12 @@ vi.mock('@/composables/useClipboard', () => ({ copyText: async (t: string) => (c
 import PresenterView from '@/views/PresenterView.vue';
 
 const question = (id: number, over: Partial<AdminQuestion> = {}): AdminQuestion => ({
-  id, storm_code: 'STORM01', order_index: id, type: 'choice', prompt: `Question ${id}`, options: JSON.stringify(['A', 'B']),
+  id, storm_code: 'ABCDEFGH', order_index: id, type: 'choice', prompt: `Question ${id}`, options: JSON.stringify(['A', 'B']),
   scale_min: null, scale_max: null, multi: 0, results_hidden: 0, answer_shown: 0, correct: null, display: 'bars',
   tally: { counts: [2, 1], totalVotes: 3 }, ...over,
 });
 
-async function mountPresenter(url = '/presenter#key=ADMINKEY') {
+async function mountPresenter(url = `/presenter/ABCDEFGH#k=${SECRET}`) {
   const router = createRouter({ history: createMemoryHistory(), routes });
   router.push(url);
   await router.isReady();
@@ -78,15 +93,18 @@ describe('PresenterView', () => {
     calls.length = 0;
     copied.length = 0;
     failNext = null;
+    dataFor = {};
+    channel.subscriptions.length = 0;
+    channel.close.mockClear();
     apiMock.mockClear();
+    createStormMock.mockClear();
     localStorage.clear();
     window.confirm = vi.fn(() => true);
     window.scrollTo = vi.fn();
     data = {
-      storm: { storm_code: 'STORM01', status: 'active', current_question_id: 1 },
+      storm: { storm_code: 'ABCDEFGH', status: 'active', current_question_id: 1 },
       questions: [question(1, { correct: JSON.stringify([0]) }), question(2, { type: 'choice', display: 'donut', results_hidden: 1 })],
       showConnect: false,
-      resultsKey: 'RESKEY',
       license: { tier: 'licensed', name: 'Acme', expiresAt: null, limits: { stormInactivityHours: 48, maxQuestionsPerStorm: 25 } },
     };
   });
@@ -166,7 +184,7 @@ describe('PresenterView', () => {
     const { wrapper } = await mountPresenter();
     await wrapper.findAll('.question')[1].findAll('.btn').find((b) => b.text() === 'Copy results link')!.trigger('click');
     await flushPromises();
-    expect(copied).toEqual([`${window.location.origin}/results#key=RESKEY&q=2`]);
+    expect(copied).toEqual([`${window.location.origin}/results#k=RESKEY&q=2`]);
   });
 
   it('adds a question, mapping the typed correct answer to its index', async () => {
@@ -244,12 +262,12 @@ describe('PresenterView', () => {
     ]);
   });
 
-  it('opens the share links and QR codes from the header button in either mode, with the results link using the key', async () => {
+  it('opens the share links and QR codes from the header button in either mode, with the results link using the derived key', async () => {
     const { wrapper } = await mountPresenter();
     expect(wrapper.findAll('.tab').map((t) => t.text())).toEqual(['Questions (2)', 'Control']);
     expect(wrapper.find('.share-url').exists()).toBe(false);
     await wrapper.find('.app-header .icon-btn').trigger('click');
-    expect(wrapper.findAll('.share-url').map((a) => a.text())).toEqual([`${window.location.origin}/vote/STORM01`, `${window.location.origin}/results#key=RESKEY`]);
+    expect(wrapper.findAll('.share-url').map((a) => a.text())).toEqual([`${window.location.origin}/vote/ABCDEFGH`, `${window.location.origin}/results#k=RESKEY`]);
     expect(wrapper.findAll('.share-card .qr-box')).toHaveLength(2);
     await wrapper.findAll('.modal .btn').find((b) => b.text() === 'Close')!.trigger('click');
     expect(wrapper.find('.share-url').exists()).toBe(false);
@@ -263,7 +281,7 @@ describe('PresenterView', () => {
     await wrapper.find('.app-header .icon-btn').trigger('click');
     await wrapper.findAll('.share-card .btn')[0].trigger('click');
     await flushPromises();
-    expect(copied).toEqual([`${window.location.origin}/vote/STORM01`]);
+    expect(copied).toEqual([`${window.location.origin}/vote/ABCDEFGH`]);
   });
 
   it('toggles the join screen and closes or reopens the storm from the Control tab', async () => {
@@ -364,28 +382,72 @@ describe('PresenterView', () => {
     await flushPromises();
     const call = calls.find((c) => c.path === 'duplicate-storm')!;
     expect(call.method).toBe('POST');
-    expect(call.body).toEqual({});
-    expect(call.key).toBe('ADMINKEY');
-    expect(router.currentRoute.value.fullPath).toBe('/presenter#key=COPYKEY&tab=questions');
-    expect(calls.some((c) => c.path === 'admin-storm' && !c.method && c.key === 'COPYKEY')).toBe(true);
+    expect(call.body).toEqual({ publicKey: 'COPYPUB', resultsKeyHash: 'COPYHASH' });
+    expect(JSON.stringify(call.body)).not.toContain(SECRET);
+    expect(JSON.stringify(call.body)).not.toContain(COPY_SECRET);
+    expect(call.session).toEqual({ stormCode: 'ABCDEFGH', secret: SECRET });
+    expect(router.currentRoute.value.fullPath).toBe(`/presenter/COPY0001#k=${COPY_SECRET}&t=questions`);
+    expect(calls.some((c) => c.path === 'admin-storm' && !c.method && c.session?.stormCode === 'COPY0001' && c.session.secret === COPY_SECRET)).toBe(true);
     expect(wrapper.find('.tab.on').text()).toContain('Questions');
+  });
+
+  it('goes back to the source Storm after Duplicate and Back: reloads it, signs for it, and closes the copy subscription', async () => {
+    dataFor = { COPY0001: { ...data, storm: { ...data.storm, storm_code: 'COPY0001', name: 'The copy' }, questions: [question(9, { prompt: 'Copied question', storm_code: 'COPY0001' })] } };
+    data.storm.name = 'The source';
+    const { wrapper, router } = await mountPresenter();
+    await wrapper.findAll('.tab')[1].trigger('click');
+    await btn(wrapper, 'Duplicate Storm').trigger('click');
+    await flushPromises();
+    expect(wrapper.text()).toContain('Copied question');
+    expect(wrapper.text()).not.toContain('Question 1');
+    const [sourceSub, copySub] = channel.subscriptions;
+    expect(channel.subscriptions.map((s) => s.code)).toEqual(['ABCDEFGH', 'COPY0001']);
+    expect(sourceSub.close).toHaveBeenCalledTimes(1);
+
+    calls.length = 0;
+    router.back();
+    await flushPromises();
+    expect(router.currentRoute.value.params.stormCode).toBe('ABCDEFGH');
+    const loads = calls.filter((c) => c.path === 'admin-storm' && !c.method);
+    expect(loads).toHaveLength(1);
+    expect(loads[0].session).toEqual({ stormCode: 'ABCDEFGH', secret: SECRET });
+    expect(wrapper.text()).toContain('Question 1');
+    expect(wrapper.text()).not.toContain('Copied question');
+    expect(copySub.close).toHaveBeenCalledTimes(1);
+    expect(channel.subscriptions.map((s) => s.code)).toEqual(['ABCDEFGH', 'COPY0001', 'ABCDEFGH']);
+
+    calls.length = 0;
+    await wrapper.findAll('.tab')[1].trigger('click');
+    await btn(wrapper, 'Show join screen').trigger('click');
+    await flushPromises();
+    const patch = calls.find((c) => c.method === 'PATCH')!;
+    expect(patch.session).toEqual({ stormCode: 'ABCDEFGH', secret: SECRET });
+  });
+
+  it('clears the Storm and its subscription when the link stops naming one', async () => {
+    const { wrapper, router } = await mountPresenter();
+    await router.push('/presenter');
+    await flushPromises();
+    expect(channel.subscriptions[0].close).toHaveBeenCalledTimes(1);
+    expect(wrapper.text()).toContain('No Storm yet');
+    expect(wrapper.text()).not.toContain('Question 1');
   });
 
   it('shows why a Storm could not be duplicated and stays on the original', async () => {
     const { wrapper, router } = await mountPresenter();
     await wrapper.findAll('.tab')[1].trigger('click');
-    apiMock.mockImplementationOnce(async (path: string, options: RequestInit = {}) => {
-      calls.push({ path, body: options.body ? JSON.parse(options.body as string) : undefined, method: options.method });
+    apiMock.mockImplementationOnce(async (session: any, path: string, options: RequestInit = {}) => {
+      calls.push({ path, body: options.body ? JSON.parse(options.body as string) : undefined, method: options.method, session });
       throw new FakeApiError('Your license allows 1 active Storm. Delete or let one expire first.', 403);
     });
     await btn(wrapper, 'Duplicate Storm').trigger('click');
     await flushPromises();
     expect(wrapper.find('.alert.error').text()).toContain('Your license allows 1 active Storm');
-    expect(router.currentRoute.value.fullPath).toContain('/presenter#key=ADMINKEY');
+    expect(router.currentRoute.value.fullPath).toContain(`/presenter/ABCDEFGH#k=${SECRET}`);
   });
 
-  describe('the admin key', () => {
-    it('is sent in a header on every call, and never appears in a URL or a body', async () => {
+  describe('the presenter secret', () => {
+    it('signs every call as the Storm in the path with the secret in the fragment, and never puts the secret in a function name or body', async () => {
       const { wrapper } = await mountPresenter();
       await wrapper.findAll('.tab')[1].trigger('click');
       await btn(wrapper, 'Show join screen').trigger('click');
@@ -394,28 +456,30 @@ describe('PresenterView', () => {
       await flushPromises();
       expect(calls.length).toBeGreaterThan(3);
       for (const call of calls) {
-        expect(call.path).not.toContain('ADMINKEY');
-        expect(JSON.stringify(call.body ?? {})).not.toContain('ADMINKEY');
+        expect(call.path).not.toContain('?');
+        expect(call.path).not.toContain(SECRET);
+        expect(JSON.stringify(call.body ?? {})).not.toContain(SECRET);
       }
-      expect(calls.filter((c) => c.path !== 'create-storm').every((c) => c.key === 'ADMINKEY')).toBe(true);
+      const original = calls.filter((c) => c.path !== 'admin-storm' || c.session?.stormCode === 'ABCDEFGH');
+      expect(original.every((c) => c.session!.stormCode === 'ABCDEFGH' && c.session!.secret === SECRET)).toBe(true);
     });
 
     it('is read from the fragment, and the open tab is kept there too', async () => {
-      const { wrapper, router } = await mountPresenter('/presenter#key=ADMINKEY&tab=storm');
+      const { wrapper, router } = await mountPresenter(`/presenter/ABCDEFGH#k=${SECRET}&t=storm`);
       expect(wrapper.find('.tab.on').text()).toContain('Control');
       await wrapper.findAll('.tab')[0].trigger('click');
       await flushPromises();
-      expect(router.currentRoute.value.hash).toBe('#key=ADMINKEY&tab=questions');
+      expect(router.currentRoute.value.hash).toBe(`#k=${SECRET}&t=questions`);
     });
 
     it('is remembered on this device once its Storm loads, with the Storm name', async () => {
       data.storm.name = 'Town hall';
       await mountPresenter();
-      expect(loadRecent()).toEqual([{ adminKey: 'ADMINKEY', stormCode: 'STORM01', name: 'Town hall', lastOpenedAt: expect.any(Number) }]);
+      expect(loadRecent()).toEqual([{ stormCode: 'ABCDEFGH', secret: SECRET, name: 'Town hall', lastOpenedAt: expect.any(Number) }]);
     });
 
     it('is forgotten when the server says the Storm is gone', async () => {
-      rememberStorm({ adminKey: 'ADMINKEY', stormCode: 'STORM01' });
+      rememberStorm({ stormCode: 'ABCDEFGH', secret: SECRET });
       failNext = null;
       apiMock.mockImplementationOnce(async () => {
         throw new FakeApiError('Invalid admin key', 401);
@@ -423,6 +487,23 @@ describe('PresenterView', () => {
       const { wrapper } = await mountPresenter();
       expect(wrapper.find('.alert.error').text()).toContain('Invalid admin key');
       expect(loadRecent()).toEqual([]);
+    });
+
+    it('is kept, with the error shown, when the clock is out of step with the server', async () => {
+      rememberStorm({ stormCode: 'ABCDEFGH', secret: SECRET });
+      apiMock.mockImplementationOnce(async () => {
+        throw Object.assign(new FakeApiError('This device’s clock is out of step with the server', 401), { code: 'clock_skew' });
+      });
+      const { wrapper } = await mountPresenter();
+      expect(wrapper.find('.alert.error').text()).toContain('clock is out of step');
+      expect(loadRecent().map((e) => e.stormCode)).toEqual(['ABCDEFGH']);
+    });
+
+    it('is reported missing, without any admin request, when the link has a code but no key', async () => {
+      const { wrapper } = await mountPresenter('/presenter/ABCDEFGH');
+      expect(wrapper.text()).toContain('This link is missing its key');
+      expect(wrapper.text()).not.toContain('No Storm yet');
+      expect(calls).toEqual([]);
     });
   });
 
@@ -483,12 +564,13 @@ describe('PresenterView', () => {
     expect(calls.filter((c) => c.path === 'admin-storm' && !c.method).length).toBe(before + 1);
   });
 
-  it('offers to create a storm when there is no admin key', async () => {
+  it('offers to create a storm when there is no Storm code, then opens it with its secret and remembers it', async () => {
     const { wrapper, router } = await mountPresenter('/presenter');
     expect(wrapper.text()).toContain('No Storm yet');
     await wrapper.find('.btn.primary').trigger('click');
     await flushPromises();
-    expect(router.currentRoute.value.fullPath).toBe('/presenter#key=NEWKEY');
-    expect(calls.some((c) => c.path === 'create-storm')).toBe(true);
+    expect(createStormMock).toHaveBeenCalledTimes(1);
+    expect(router.currentRoute.value.fullPath).toBe(`/presenter/NEW00001#k=${NEW_SECRET}`);
+    expect(loadRecent().map((e) => [e.stormCode, e.secret])).toEqual([['NEW00001', NEW_SECRET]]);
   });
 });

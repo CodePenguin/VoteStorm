@@ -5,11 +5,13 @@ import { describeActivity, type ActivityLabels } from './lib/activity';
 export class ApiError extends Error {
   status: number;
   code?: string;
+  serverTime?: number;
 
-  constructor(message: string, status: number, code?: string) {
+  constructor(message: string, status: number, code?: string, serverTime?: number) {
     super(message);
     this.status = status;
     this.code = code;
+    this.serverTime = serverTime;
   }
 }
 
@@ -34,8 +36,8 @@ export async function api<T = unknown>(path: string, options: ApiOptions = {}): 
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
-      const body = data as { error?: string; code?: string };
-      throw new ApiError(body.error || `Request failed: ${res.status}`, res.status, body.code);
+      const body = data as { error?: string; code?: string; serverTime?: number };
+      throw new ApiError(body.error || `Request failed: ${res.status}`, res.status, body.code, body.serverTime);
     }
     finish?.({ ok: true });
     return data as T;

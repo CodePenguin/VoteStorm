@@ -1,8 +1,7 @@
-import { createDb, initSchema, getStormByAdminKeyHash, sweepExpiredStorms, deleteStormCascade, resultsBackground } from '../../lib/db.js';
-import { hashAdminKey } from '../../lib/stormCode.js';
+import { createDb, initSchema, sweepExpiredStorms, deleteStormCascade, resultsBackground } from '../../lib/db.js';
 import { ConfigError, LicenseError, configErrorResponse, resolveLicense } from '../../lib/license.js';
-import { insertStorm, stormLimitResponse, MAX_NAME_LENGTH } from '../../lib/storms.js';
-import { adminKeyFrom } from '../../lib/adminKey.js';
+import { insertStorm, parseNewCredentials, stormLimitResponse, MAX_NAME_LENGTH } from '../../lib/storms.js';
+import { verifyAdmin } from '../../lib/adminAuth.js';
 import { rateLimitByIp } from '../../lib/rateLimit.js';
 import { json } from '../../lib/http.js';
 
@@ -10,15 +9,6 @@ import { json } from '../../lib/http.js';
 // whoever asks (their license, their limits), so it counts toward their active-storm limit like any new storm.
 export async function handler(event) {
   if (event.httpMethod !== 'POST') return json(405, { error: 'Method not allowed' });
-
-  let bodyData;
-  try {
-    bodyData = event.body ? JSON.parse(event.body) : {};
-  } catch {
-    return json(400, { error: 'Invalid JSON' });
-  }
-  const adminKey = adminKeyFrom(event, bodyData);
-  if (!adminKey) return json(401, { error: 'Invalid admin key' });
 
   let license;
   try {
@@ -29,14 +19,24 @@ export async function handler(event) {
     throw err;
   }
 
+  let bodyData;
+  try {
+    bodyData = event.body ? JSON.parse(event.body) : {};
+  } catch {
+    return json(400, { error: 'Invalid JSON' });
+  }
+  const credentials = parseNewCredentials(bodyData);
+  if (credentials.error) return json(400, { error: credentials.error });
+
   const db = createDb();
   await initSchema(db);
   const limited = await rateLimitByIp(db, event, 'createStorm');
   if (limited) return limited;
   await sweepExpiredStorms(db);
 
-  const source = await getStormByAdminKeyHash(db, hashAdminKey(adminKey));
-  if (!source) return json(401, { error: 'Invalid admin key' });
+  const auth = await verifyAdmin(event, db, 'duplicate-storm');
+  if (auth.response) return auth.response;
+  const source = auth.storm;
 
   const questions = (await db.execute({ sql: 'SELECT * FROM questions WHERE storm_code = ? ORDER BY order_index ASC', args: [source.storm_code] })).rows;
   if (license.maxQuestionsPerStorm && questions.length > license.maxQuestionsPerStorm) {
@@ -50,10 +50,12 @@ export async function handler(event) {
   if (full) return full;
 
   const created = await insertStorm(db, license, {
+    ...credentials,
     resultsBackground: resultsBackground(source),
     name: source.name ? `Copy of ${source.name}`.slice(0, MAX_NAME_LENGTH) : null,
   });
   if (!created) return json(503, { error: 'Could not allocate a Storm code. Please try again.' });
+  if (created.inUse) return json(409, { error: 'That key is already in use' });
 
   try {
     if (questions.length > 0) {
@@ -72,5 +74,5 @@ export async function handler(event) {
     await deleteStormCascade(db, created.stormCode);
     throw err;
   }
-  return json(200, created);
+  return json(200, { stormCode: created.stormCode });
 }

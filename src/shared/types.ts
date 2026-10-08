@@ -102,7 +102,6 @@ export interface AdminStormData {
   questions: AdminQuestion[];
   showConnect: boolean;
   resultsBackground: string | null;
-  resultsKey: string;
   license: LicenseSummary;
 }
 

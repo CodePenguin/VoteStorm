@@ -7,6 +7,7 @@ import { subscribeStorm } from '@/composables/useStormChannel';
 import { normalizeTally, responsesLabel } from '@/lib/tally';
 import { resultsTheme } from '@/lib/color';
 import { readFragment } from '@/lib/fragment';
+import { formatStormCode } from '@/lib/stormCode';
 import { useVotingClock } from '@/composables/useVotingClock';
 import type { ClosedQuestion, Question, StormState, Tally } from '@/shared/types';
 import QrCode from '@/components/QrCode.vue';
@@ -17,7 +18,7 @@ import ResultsCarousel from '@/components/ResultsCarousel.vue';
 const route = useRoute();
 // The key and the pinned question live after the `#`, which a browser never sends to a server.
 const fragment = computed(() => readFragment(route.hash));
-const resultsKey = computed(() => fragment.value.get('key') ?? '');
+const resultsKey = computed(() => fragment.value.get('k') ?? '');
 const lockedId = computed(() => {
   const value = fragment.value.get('q');
   return value && /^\d+$/.test(value) ? Number(value) : null;
@@ -194,7 +195,7 @@ onBeforeUnmount(() => ably?.close());
       <div class="footer-info">
         <span v-if="showResponseCount"><strong>{{ total }}</strong> {{ responsesLabel(total) }}</span>
         <span v-if="stormClosed">Swipe or use the arrow keys to browse questions</span>
-        <span v-if="stormCode">Storm code {{ stormCode }}</span>
+        <span v-if="stormCode">Storm code {{ formatStormCode(stormCode) }}</span>
       </div>
       <p class="attribution">
         Copyright&nbsp;<a href="https://codepenguin.com" rel="noopener noreferrer" title="David Lambert (Code Penguin)">David&nbsp;Lambert&nbsp;(Code&nbsp;Penguin)</a>

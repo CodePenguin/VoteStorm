@@ -1,0 +1,12 @@
+{
+  "input": {
+    "method": "PATCH",
+    "functionName": "admin-storm",
+    "stormCode": "ABCDEFGH",
+    "ts": 1790000000000,
+    "body": "{\"name\":\"Vector\"}"
+  },
+  "canonicalText": "VOTESTORM-SIG-V1\nPATCH\nadmin-storm\nABCDEFGH\n1790000000000\ne34f3b3e77df1b50c455c943af24aea09d69b35302ee71429fc34ce129383041",
+  "publicKey": "BNBShkRIJVc1-JgUXR7jzOzDYsZ3v3_Wy9o3HBNhHSt5y98IAVJQ4doBD9OyeIqM-ci45lP3Nb4_qZeDMI3DYCg",
+  "signature": "hnBsh1QHWn_Xb5mT5OSQ3Wpj_53Acqist0GRuEyD1NHpCiYoS7oUY6c4Ge6B1wFZTit5d7ZvFydT-UGTYLyrFw"
+}

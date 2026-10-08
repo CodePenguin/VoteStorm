@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
-import { api, ApiError } from '@/api';
+import { ApiError } from '@/api';
+import { signedApi } from '@/lib/adminRequest';
+import { formatStormCode } from '@/lib/stormCode';
 import { presenterLocation } from '@/lib/fragment';
 import { agoLabel, inLabel } from '@/lib/relativeTime';
 import { forgetStorm, loadRecent, renameRemembered, type RecentStorm } from '@/lib/recentStorms';
@@ -21,7 +23,7 @@ const checking = ref(rows.value.length > 0);
 
 async function refresh(row: Row) {
   try {
-    const data = await api<AdminStormData>('admin-storm', { headers: { 'x-admin-key': row.adminKey } });
+    const data = await signedApi<AdminStormData>({ stormCode: row.stormCode, secret: row.secret }, 'admin-storm');
     const last = Number(data.storm.last_activity_at ?? data.storm.created_at ?? Date.now());
     Object.assign(row, {
       name: data.storm.name ?? null,
@@ -31,12 +33,13 @@ async function refresh(row: Row) {
       expiresAt: last + Number(data.storm.inactivity_hours ?? 24) * 3600000,
       unreachable: false,
     });
-    renameRemembered(row.adminKey, row.name);
+    renameRemembered(row.stormCode, row.name);
   } catch (err) {
-    if (err instanceof ApiError && (err.status === 401 || err.status === 404)) {
+    // A clock_skew 401 follows a valid signature, so that Storm exists and its secret must be kept.
+    if (err instanceof ApiError && err.status === 401 && err.code !== 'clock_skew') {
       // The Storm has expired or been deleted, so there is nothing to open any more.
-      forgetStorm(row.adminKey);
-      rows.value = rows.value.filter((r) => r.adminKey !== row.adminKey);
+      forgetStorm(row.stormCode);
+      rows.value = rows.value.filter((r) => r.stormCode !== row.stormCode);
     } else {
       row.unreachable = true;
     }
@@ -53,11 +56,11 @@ onMounted(async () => {
   checking.value = false;
 });
 
-const open = (row: Row) => router.push(presenterLocation(row.adminKey));
+const open = (row: Row) => router.push(presenterLocation(row.stormCode, row.secret));
 
 function forget(row: Row) {
-  forgetStorm(row.adminKey);
-  rows.value = rows.value.filter((r) => r.adminKey !== row.adminKey);
+  forgetStorm(row.stormCode);
+  rows.value = rows.value.filter((r) => r.stormCode !== row.stormCode);
 }
 </script>
 
@@ -74,9 +77,9 @@ function forget(row: Row) {
     </div>
 
     <ul v-else class="storm-list" :aria-busy="checking">
-      <li v-for="row in rows" :key="row.adminKey" class="card storm-row">
+      <li v-for="row in rows" :key="row.stormCode" class="card storm-row">
         <div class="storm-main">
-          <strong class="storm-title">{{ row.name || `Storm ${row.stormCode}` }}</strong>
+          <strong class="storm-title">{{ row.name || `Storm ${formatStormCode(row.stormCode)}` }}</strong>
           <span class="muted storm-meta">
             <span v-if="row.status" class="badge" :class="row.status">{{ row.status }}</span>
             <template v-if="row.questions !== undefined">{{ row.questions }} {{ row.questions === 1 ? 'question' : 'questions' }} &middot; </template>
@@ -84,11 +87,11 @@ function forget(row: Row) {
             <template v-else-if="row.unreachable">couldn&rsquo;t check right now</template>
             <template v-else>checking&hellip;</template>
           </span>
-          <span class="muted storm-code">Storm code {{ row.stormCode }}</span>
+          <span class="muted storm-code">Storm code {{ formatStormCode(row.stormCode) }}</span>
         </div>
         <div class="storm-actions">
           <button class="btn primary sm" @click="open(row)">Open</button>
-          <button class="btn sm" :aria-label="`Forget ${row.name || 'Storm ' + row.stormCode}`" title="Remove from this list. The Storm itself is not deleted." @click="forget(row)">Forget</button>
+          <button class="btn sm" :aria-label="`Forget ${row.name || 'Storm ' + formatStormCode(row.stormCode)}`" title="Remove from this list. The Storm itself is not deleted." @click="forget(row)">Forget</button>
         </div>
       </li>
     </ul>
