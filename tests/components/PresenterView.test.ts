@@ -375,6 +375,20 @@ describe('PresenterView', () => {
     });
   });
 
+  it('does not open a live connection when the page is closed while the Storm is still loading', async () => {
+    let release!: (value: AdminStormData) => void;
+    apiMock.mockImplementationOnce(() => new Promise<AdminStormData>((resolve) => (release = resolve)));
+    const { wrapper } = await mountPresenter();
+    expect(channel.subscriptions).toHaveLength(0);
+
+    wrapper.unmount();
+    release(JSON.parse(JSON.stringify(data)));
+    await flushPromises();
+
+    expect(channel.subscriptions).toHaveLength(0);
+    expect(loadRecent()).toEqual([]);
+  });
+
   it('duplicates the Storm from the Control tab and opens the copy on its Questions tab', async () => {
     const { wrapper, router } = await mountPresenter();
     await wrapper.findAll('.tab')[1].trigger('click');

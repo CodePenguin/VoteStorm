@@ -148,6 +148,7 @@ onMounted(() => {
 });
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKey);
+  loadId++;
   ably?.close();
 });
 </script>

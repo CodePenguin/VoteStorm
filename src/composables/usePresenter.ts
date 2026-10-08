@@ -61,22 +61,30 @@ export function usePresenter(session: Ref<AdminSession>, options: PresenterOptio
   }
 
   async function safeLoad() {
+    const started = generation;
     try {
       await load();
-      error.value = null;
+      if (started === generation) error.value = null;
     } catch (e) {
-      error.value = message(e);
+      if (started === generation) error.value = message(e);
     }
   }
 
-  /** Runs an action, then refreshes; any failure is shown as the page error. Returns whether it succeeded. */
+  /**
+   * Runs an action, then refreshes; any failure is shown as the page error. Returns whether it succeeded. If the page
+   * has moved to another Storm while the action ran, nothing is shown or changed for it and this returns false.
+   */
   async function act(fn: () => Promise<unknown>, reload = true): Promise<boolean> {
+    const started = generation;
     try {
       await fn();
+      if (started !== generation) return false;
       if (reload) await load();
+      if (started !== generation) return false;
       error.value = null;
       return true;
     } catch (e) {
+      if (started !== generation) return false;
       error.value = message(e);
       return false;
     }
