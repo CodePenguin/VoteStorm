@@ -10,7 +10,8 @@ import type { AdminSession } from '@/lib/adminRequest';
 import { createStorm as makeStorm } from '@/lib/createStorm';
 import { fragmentFor, presenterLocation, readFragment } from '@/lib/fragment';
 import { forgetStorm, rememberStorm } from '@/lib/recentStorms';
-import { normalizeStormCode } from '@/lib/stormCode';
+import { formatStormCode, normalizeStormCode } from '@/lib/stormCode';
+import { useDialogFocus } from '@/composables/useDialogFocus';
 import type { AdminCloud, CloudForm, CloudPayload } from '@/shared/types';
 import BrandMark from '@/components/BrandMark.vue';
 import ControlTab from '@/components/presenter/ControlTab.vue';
@@ -47,6 +48,19 @@ const showShare = ref(false);
 const showForm = ref(false);
 const editingId = ref<number | null>(null);
 const form = ref<CloudForm>(blankForm());
+const overlay = ref<HTMLElement | null>(null);
+// Present mode takes over the page only once there is a Storm to present; until then (loading, no Storm, no key) the page shows as usual.
+const presenting = computed(() => mode.value === 'present' && !!store.storm.value);
+const overlayOpen = computed(() => presenting.value && showForm.value);
+const stormName = computed(() => {
+  const storm = store.storm.value;
+  return storm ? storm.name || `Storm ${formatStormCode(storm.storm_code)}` : '';
+});
+// After the edit overlay closes, focus goes back to whatever opened it; when that is gone (the phone's Controls sheet
+// closed as the overlay opened) or a shortcut opened it, to Edit cloud on the rail, the collapsed dock's handle, or the
+// Controls button on a phone.
+const panel = ref<{ $el: HTMLElement } | null>(null);
+useDialogFocus(overlay, overlayOpen, () => panel.value?.$el.querySelector<HTMLElement>('.rail .edit-cloud, .dock-handle, .bar-controls') ?? null);
 let ably: Ably.Realtime | null = null;
 
 function setMode(next: 'edit' | 'present') {
@@ -57,6 +71,11 @@ function setMode(next: 'edit' | 'present') {
   } catch {
     /* storage unavailable */
   }
+}
+
+function exitPresent() {
+  setMode('edit');
+  if (tab.value !== 'clouds') setTab('clouds');
 }
 
 function setTab(next: Tab) {
@@ -86,6 +105,15 @@ function startEdit(q: AdminCloud) {
   showForm.value = true;
   setTab('clouds');
   window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+/** Edit cloud in Present mode: the form opens over the stage for the live cloud, which stays live. */
+function startEditPresent() {
+  const q = store.currentQ.value;
+  if (!q) return;
+  form.value = formFromCloud(q);
+  editingId.value = q.id;
+  showForm.value = true;
 }
 
 async function save(payload: CloudPayload) {
@@ -136,6 +164,8 @@ async function init() {
 // every call signed must follow it: drop the old Storm and its live connection, then load the one the link now names.
 watch([stormCode, secret], () => {
   loadId++;
+  // A form left open (the edit overlay included) belongs to the old Storm's cloud: never show it over the next one.
+  cancelForm();
   store.reset();
   ably?.close();
   ably = null;
@@ -155,7 +185,7 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="presenter-page">
-    <header class="app-header">
+    <header v-if="!presenting" class="app-header">
       <div class="container">
         <RouterLink class="brand" to="/">
           <BrandMark />
@@ -185,7 +215,18 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
-    <main class="container presenter-main">
+    <PresentPanel
+      v-if="presenting" ref="panel"
+      :store="store" :editing="showForm" :storm-name="stormName" @edit="startEditPresent" @exit="exitPresent" @close-edit="cancelForm"
+    />
+    <div v-if="overlayOpen" class="present-overlay">
+      <div ref="overlay" class="card present-dialog" role="dialog" aria-modal="true" aria-label="Edit cloud" tabindex="-1">
+        <div v-if="store.error.value" class="alert error" role="alert" style="margin-bottom: 12px">Couldn't complete that: {{ store.error.value }}</div>
+        <CloudFormView :key="editingId ?? 'new'" v-model="form" :editing="editingId !== null" @save="save" @cancel="cancelForm" />
+      </div>
+    </div>
+
+    <main v-if="!presenting" class="container presenter-main">
       <h1 class="sr-only">Presenter</h1>
       <div v-if="store.error.value" class="alert error" style="margin-bottom: 16px">Couldn't complete that: {{ store.error.value }}</div>
 
@@ -202,9 +243,7 @@ onBeforeUnmount(() => {
       </div>
 
       <div v-else-if="store.storm.value">
-        <PresentPanel v-show="mode === 'present'" :store="store" />
-
-        <div v-show="mode === 'edit'">
+        <div>
           <div class="tabs" role="tablist">
             <button class="tab" role="tab" :class="{ on: tab === 'clouds' }" :aria-selected="tab === 'clouds'" @click="setTab('clouds')">
               Clouds <span class="muted">({{ store.clouds.value.length }})</span>
@@ -215,7 +254,10 @@ onBeforeUnmount(() => {
           <div v-show="tab === 'clouds'" role="tabpanel">
             <div class="section-head" style="margin-top: 0">
               <h2>Clouds</h2>
-              <button class="btn primary" @click="showForm ? cancelForm() : openAddForm()">{{ showForm ? 'Cancel' : '+ Add cloud' }}</button>
+              <span class="section-actions">
+                <button class="btn primary" @click="showForm ? cancelForm() : openAddForm()">{{ showForm ? 'Cancel' : '+ Add cloud' }}</button>
+                <button v-if="store.storm.value.current_cloud_id" class="btn" @click="setMode('present')">Back to presenting</button>
+              </span>
             </div>
 
             <CloudFormView v-if="showForm" :key="editingId ?? 'new'" v-model="form" :editing="editingId !== null" @save="save" @cancel="cancelForm" />
@@ -254,6 +296,11 @@ onBeforeUnmount(() => {
 .tab:focus-visible { outline: 3px solid color-mix(in srgb, var(--accent) 45%, transparent); outline-offset: -3px; border-radius: 6px; }
 .section-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 32px 0 14px; }
 .section-head h2 { font-size: 1.15rem; }
+.section-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.present-overlay { position: fixed; inset: 0; z-index: 50; background: rgba(15,23,42,.45); display: grid; place-items: center; padding: 16px; }
+.present-dialog { width: min(720px, 100%); max-height: calc(100dvh - 32px); overflow-y: auto; }
+/* The form is its own card; inside the dialog card it should not draw a second frame. */
+.present-dialog .cloud-form { margin: 0 !important; padding: 0; border: 0; box-shadow: none; background: none; }
 .cloud { padding: 18px 20px; }
 .cloud.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent), var(--shadow); }
 .q-head { display: flex; align-items: flex-start; gap: 12px; }

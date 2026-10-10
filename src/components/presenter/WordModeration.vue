@@ -5,7 +5,8 @@ import { wordsOf } from '@/lib/tally';
 import type { PresenterStore } from '@/composables/usePresenter';
 import type { AdminCloud } from '@/shared/types';
 
-const props = defineProps<{ cloud: AdminCloud; store: PresenterStore }>();
+/** headingLevel: the "Removed" heading's level where it sits (3 in the editor's cloud card, 2 on the Present stage). */
+const props = withDefaults(defineProps<{ cloud: AdminCloud; store: PresenterStore; headingLevel?: 2 | 3 }>(), { headingLevel: 3 });
 const words = computed(() => wordsOf(props.cloud.tally));
 const removed = computed(() => parseHiddenWords(props.cloud));
 </script>
@@ -20,7 +21,7 @@ const removed = computed(() => parseHiddenWords(props.cloud));
       </li>
     </ul>
     <template v-if="removed.length">
-      <h3 class="word-removed-title">Removed</h3>
+      <component :is="`h${headingLevel}`" class="word-removed-title">Removed</component>
       <ul class="word-chips" aria-label="Removed words">
         <li v-for="w in removed" :key="w" class="word-chip removed">
           <span class="word-text">{{ w }}</span>

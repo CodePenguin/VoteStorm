@@ -1,11 +1,12 @@
 // @vitest-environment jsdom
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { flushPromises, mount } from '@vue/test-utils';
 import { createMemoryHistory, createRouter } from 'vue-router';
 import { routes } from '@/router';
 import type { Cloud, StormState } from '@/shared/types';
+import { renderMarkdown } from '@/lib/markdown';
 
 const apiMock = vi.fn();
 vi.mock('@/api', () => ({
@@ -251,9 +252,18 @@ describe('VoteView', () => {
     };
     const words: Cloud = { ...choice, id: 21, kind: 'words', options: null, body: 'One word for today?', maxWords: 2 };
     const status = (w: { find: (s: string) => { text: () => string } }) => w.find('p[role=status]').text();
+    // The markdown library loads lazily: load it once up front, and wait for the rendered markup rather than assuming one
+    // flushPromises() was enough (under a busy full-suite run it sometimes was not).
+    beforeAll(async () => {
+      await renderMarkdown('warm up');
+    });
+    const rendered = async (w: { find: (s: string) => { exists: () => boolean } }, selector: string) => {
+      await vi.waitFor(() => expect(w.find(selector).exists()).toBe(true));
+    };
 
     it('shows a content cloud as rendered text and an image, with no vote buttons and a heading to focus', async () => {
       const wrapper = await mountVote(state({ currentCloud: content, tally: { counts: [], totalVotes: 0 } }));
+      await rendered(wrapper, '.md img');
       expect(wrapper.find('.md strong').text()).toBe('Read');
       expect(wrapper.find('.md img').attributes('src')).toBe('https://example.com/a.png');
       expect(wrapper.find('.choice').exists()).toBe(false);
@@ -266,6 +276,7 @@ describe('VoteView', () => {
 
     it('renders a choice cloud body as markdown above the options', async () => {
       const wrapper = await mountVote(state({ currentCloud: { ...choice, body: '*Which?*' } }));
+      await rendered(wrapper, '.prompt .md em');
       expect(wrapper.find('.prompt .md em').text()).toBe('Which?');
       expect(wrapper.findAll('.choice')).toHaveLength(3);
       expect(status(wrapper)).toBe('New cloud: Which?');
@@ -288,6 +299,7 @@ describe('VoteView', () => {
 
     it('keeps showing a content cloud whose time is up, with no vote or results wording', async () => {
       const wrapper = await mountVote(state({ currentCloud: { ...content, votingMsLeft: 0 }, tally: { counts: [], totalVotes: 0 } }));
+      await rendered(wrapper, '.content-card .md strong');
       expect(wrapper.find('.content-card .md strong').text()).toBe('Read');
       expect(wrapper.text()).not.toContain('Live results');
       expect(wrapper.text()).not.toContain('taking votes');

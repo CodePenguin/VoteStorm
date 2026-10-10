@@ -30,6 +30,14 @@ describe('WordModeration', () => {
     expect(store.showWord).toHaveBeenCalledWith(c, 'rude');
   });
 
+  it('uses an h3 for "Removed" in the editor, and the level it is given elsewhere', () => {
+    const c = cloud({ hidden_words: JSON.stringify(['rude']) });
+    expect(setup(c).wrapper.find('h3.word-removed-title').text()).toBe('Removed');
+    const stage = mount(WordModeration, { props: { cloud: c, store: { hideWord: vi.fn(), showWord: vi.fn() } as never, headingLevel: 2 } });
+    expect(stage.find('h2.word-removed-title').text()).toBe('Removed');
+    expect(stage.find('h3').exists()).toBe(false);
+  });
+
   it('says so when there are no words yet, and hides the Removed heading when nothing is removed', () => {
     const { wrapper } = setup(cloud({ tally: { words: [], totalVotes: 0 } as never }));
     expect(wrapper.text()).toContain('No words yet');

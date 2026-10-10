@@ -1,5 +1,6 @@
 import type { AdminCloud, Cloud, CloudForm, CloudKind, CloudPayload, StormStatus } from '@/shared/types';
 import { plainLine } from '@/lib/markdown';
+import type { VotingPhase } from '@/composables/useVotingClock';
 
 export function blankForm(): CloudForm {
   return { kind: 'choice', body: '', optionsText: '', correctText: '', display: 'bars', resultsHidden: false, multi: false, scaleMin: 1, scaleMax: 5, maxWords: 3 };
@@ -94,4 +95,33 @@ export function firstLine(body: string, max = 80): string {
 
 export function statusLabel(status: StormStatus): string {
   return { lobby: 'Lobby', active: 'Live', closed: 'Closed' }[status] ?? status;
+}
+
+export type StatusTone = 'on' | 'warn' | 'ok' | 'neutral';
+export interface StatusLine {
+  key: string;
+  text: string;
+  tone: StatusTone;
+}
+
+/** What the audience sees right now, as short lines for the presenter's status strip. The join state is always included. */
+export function presentStatus(input: { cloud: AdminCloud | null; phase: VotingPhase; label: string; showConnect: boolean }): StatusLine[] {
+  const { cloud, phase, label, showConnect } = input;
+  const lines: StatusLine[] = [];
+  if (!cloud) {
+    lines.push({ key: 'live', text: 'No cloud is live', tone: 'neutral' });
+  } else {
+    const text = phaseText(cloud.kind);
+    if (phase === 'running') lines.push({ key: 'state', text: `${label} left`, tone: 'on' });
+    else if (phase === 'closed') lines.push({ key: 'state', text: text.closed, tone: 'warn' });
+    else lines.push({ key: 'state', text: text.open, tone: cloud.kind === 'content' ? 'neutral' : 'on' });
+    if (cloud.kind !== 'content' && cloud.results_hidden) lines.push({ key: 'results', text: 'Results hidden', tone: 'warn' });
+  }
+  lines.push(showConnect ? { key: 'join', text: 'Join screen showing', tone: 'on' } : { key: 'join', text: 'Join screen off', tone: 'neutral' });
+  return lines;
+}
+
+/** A short name for a cloud's kind, for the Up next line. */
+export function kindName(c: AdminCloud): string {
+  return { content: 'Content', words: 'Word cloud', choice: 'Question', rating: 'Rating' }[c.kind];
 }

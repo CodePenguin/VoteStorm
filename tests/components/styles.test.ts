@@ -36,17 +36,18 @@ describe('stylesheet', () => {
   describe('presenter and projector polish', () => {
     const read = (f: string) => readFileSync(path.resolve(__dirname, '../../src', f), 'utf8');
     const card = read('components/presenter/CloudCard.vue');
-    const panel = read('components/presenter/PresentPanel.vue');
+    // The Present stage replaced the old Present panel card: the same rules now live there.
+    const stage = read('components/presenter/PresentStage.vue');
 
     it('keeps card headings at the card size and fades a cut-off card body or word preview', () => {
       expect(card).toMatch(/\.q-prompt \.md :is\(h2, h3, h4, h5, h6\) \{ font-size: inherit;/);
       expect(card).toMatch(/\.q-prompt\.clamp\.overflowing \{[^}]*mask-image: linear-gradient/);
-      expect(panel).toMatch(/\.word-preview\.overflowing \{[^}]*mask-image: linear-gradient/);
+      expect(stage).toMatch(/\.word-preview\.overflowing \{[^}]*mask-image: linear-gradient/);
     });
 
-    it('bolds only a one-paragraph body or headings in the Present panel', () => {
-      expect(panel).toMatch(/\.present-prompt \{[^}]*font-weight: 400/);
-      expect(panel).toMatch(/\.present-prompt \.md > p:only-child \{ font-weight: 700; \}/);
+    it('bolds only a one-paragraph body or headings in the Present stage', () => {
+      expect(stage).toMatch(/\.stage-title \{[^}]*font-weight: 400/);
+      expect(stage).toMatch(/\.stage-title \.md > p:only-child \{ font-weight: 800; \}/);
     });
 
     it('limits the height of a picture on the projector summary', () => {

@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { flushPromises, mount } from '@vue/test-utils';
 import { createMemoryHistory, createRouter } from 'vue-router';
 import { routes } from '@/router';
@@ -41,6 +41,9 @@ const apiMock = vi.fn(async (session: { stormCode: string; secret: string }, pat
   if (path === 'admin-storm' && options.method === 'PATCH' && body.cloudId && body.resultsHidden !== undefined) {
     data.clouds.find((q) => q.id === body.cloudId)!.results_hidden = body.resultsHidden ? 1 : 0;
   }
+  if (path === 'admin-clouds' && options.method === 'PATCH' && body.edit) {
+    data.clouds.find((q) => q.id === body.cloudId)!.body = body.edit.body;
+  }
   if (path === 'duplicate-storm') return { stormCode: 'COPY0001' };
   return { ok: true };
 });
@@ -76,17 +79,41 @@ const cloud = (id: number, over: Partial<AdminCloud> = {}): AdminCloud => ({
   max_words: null, hidden_words: null, tally: { counts: [2, 1], totalVotes: 3 }, ...over,
 });
 
+// Present mode listens for keys on the window, so every page is unmounted after its test.
+const mountedPages: ReturnType<typeof mount>[] = [];
+afterEach(() => {
+  mountedPages.splice(0).forEach((w) => {
+    try {
+      w.unmount();
+    } catch {
+      /* the test unmounted it already */
+    }
+  });
+});
+
 async function mountPresenter(url = `/presenter/ABCDEFGH#k=${SECRET}`) {
   const router = createRouter({ history: createMemoryHistory(), routes });
   router.push(url);
   await router.isReady();
   const wrapper = mount(PresenterView, { global: { plugins: [router] }, attachTo: document.body });
+  mountedPages.push(wrapper);
   await flushPromises();
   return { wrapper, router };
 }
 
 const btn = (wrapper: ReturnType<typeof mount>, text: string) => wrapper.findAll('button').find((b) => b.text() === text)!;
 const patchCalls = (path: string) => calls.filter((c) => c.path === path && c.method === 'PATCH').map((c) => c.body);
+// Present mode: the stage shows the live cloud, the dock (a right-hand rail in jsdom, which has no matchMedia) the controls.
+const stage = (wrapper: ReturnType<typeof mount>) => wrapper.find('.present-stage main.stage');
+const dock = (wrapper: ReturnType<typeof mount>) => wrapper.find('.present-stage aside');
+const dockButtons = (wrapper: ReturnType<typeof mount>) => dock(wrapper).findAll('button').map((b) => b.text());
+const status = (wrapper: ReturnType<typeof mount>) => dock(wrapper).find('.present-status').text();
+const chipsRow = (wrapper: ReturnType<typeof mount>) => dock(wrapper).findAll('.timer-chips-row button').map((b) => b.text());
+const press = async (key: string, target: EventTarget = window) => {
+  target.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
+  await flushPromises();
+};
+const editDialog = (wrapper: ReturnType<typeof mount>) => wrapper.find('.present-overlay [role=dialog][aria-label="Edit cloud"]');
 
 describe('PresenterView', () => {
   beforeEach(() => {
@@ -127,49 +154,262 @@ describe('PresenterView', () => {
     const { wrapper } = await mountPresenter();
     await wrapper.findAll('.seg button')[1].trigger('click');
     expect(localStorage.getItem('votestorm_mode')).toBe('present');
-    const now = wrapper.find('.present-now');
-    expect(now.text()).toContain('Cloud 1');
-    expect(now.findAll('.sbar')).toHaveLength(2);
-    expect(wrapper.find('.present-nav .btn.primary').text()).toContain('Next');
-    await wrapper.find('.present-nav .btn.primary').trigger('click');
+    expect(stage(wrapper).text()).toContain('Cloud 1');
+    expect(stage(wrapper).findAll('.sbar')).toHaveLength(2);
+    const next = dock(wrapper).find('.present-step .btn.primary');
+    expect(next.text()).toContain('Next');
+    await next.trigger('click');
     await flushPromises();
     expect(patchCalls('admin-storm')).toContainEqual({ status: 'active', currentCloudId: 2 });
-    expect(wrapper.find('.present-now').text()).toContain('Cloud 2');
-    expect(wrapper.findAll('.present-row')[1].classes()).toContain('live');
+    expect(stage(wrapper).text()).toContain('Cloud 2');
+    expect(dock(wrapper).findAll('.cloud-list .li')[1].classes()).toContain('live');
   });
 
   it('opens in Present mode when that was the last mode used', async () => {
     localStorage.setItem('votestorm_mode', 'present');
     const { wrapper } = await mountPresenter();
-    expect(wrapper.find('.seg button.on').text()).toBe('Present');
+    expect(wrapper.find('.present-stage').exists()).toBe(true);
+    expect(stage(wrapper).text()).toContain('Cloud 1');
+  });
+
+  it('hides the page header only in Present mode, and Exit returns to the editor on the Clouds tab', async () => {
+    const { wrapper, router } = await mountPresenter(`/presenter/ABCDEFGH#k=${SECRET}&t=storm`);
+    expect(wrapper.find('.app-header').exists()).toBe(true);
+    await wrapper.findAll('.seg button')[1].trigger('click');
+    expect(wrapper.find('.app-header').exists()).toBe(false);
+    expect(wrapper.find('.presenter-main').exists()).toBe(false);
+    expect(wrapper.text()).not.toContain('Now showing');
+    expect(wrapper.findAll('h1').map((h) => h.text())).toEqual(['Presenting']);
+    await btn(wrapper, 'Exit').trigger('click');
+    await flushPromises();
+    expect(wrapper.find('.present-stage').exists()).toBe(false);
+    expect(wrapper.find('.app-header').exists()).toBe(true);
+    expect(wrapper.find('.seg button.on').text()).toBe('Edit');
+    expect(wrapper.find('.tab.on').text()).toContain('Clouds');
+    expect(router.currentRoute.value.hash).toBe(`#k=${SECRET}&t=clouds`);
+    expect(localStorage.getItem('votestorm_mode')).toBe('edit');
+  });
+
+  it('Escape leaves Present mode for the editor', async () => {
+    const { wrapper } = await mountPresenter();
+    await wrapper.findAll('.seg button')[1].trigger('click');
+    await press('Escape');
+    expect(wrapper.find('.present-stage').exists()).toBe(false);
+    expect(wrapper.find('.app-header').exists()).toBe(true);
+  });
+
+  it('offers Back to presenting only while a cloud is live, and the round trip keeps the Storm and the live cloud (Review Focus 5)', async () => {
+    const { wrapper } = await mountPresenter();
+    await wrapper.findAll('.seg button')[1].trigger('click');
+    await btn(wrapper, 'Exit').trigger('click');
+    const back = btn(wrapper, 'Back to presenting');
+    expect(back.exists()).toBe(true);
+    expect(back.element.closest('.section-head')).not.toBeNull();
+    await back.trigger('click');
+    await flushPromises();
+    expect(localStorage.getItem('votestorm_mode')).toBe('present');
+    expect(wrapper.find('.app-header').exists()).toBe(false);
+    expect(stage(wrapper).text()).toContain('Cloud 1');
+    expect(dock(wrapper).text()).toContain('Cloud 1 of 2');
+    expect(patchCalls('admin-storm')).toEqual([]);
+    expect(calls.filter((c) => c.path === 'admin-storm' && !c.method).every((c) => c.session?.stormCode === 'ABCDEFGH')).toBe(true);
+  });
+
+  it('has no Back to presenting when no cloud is live', async () => {
+    data.storm.current_cloud_id = null as never;
+    const { wrapper } = await mountPresenter();
+    expect(wrapper.findAll('button').some((b) => b.text() === 'Back to presenting')).toBe(false);
   });
 
   it('shows the hidden results to the presenter with a note, and toggles them per cloud', async () => {
     data.storm.current_cloud_id = 2;
     const { wrapper } = await mountPresenter();
     await wrapper.findAll('.seg button')[1].trigger('click');
-    expect(wrapper.find('.present-now').text()).toContain('hidden from the audience');
-    expect(wrapper.find('.present-now .donut').exists()).toBe(true);
-    const toggle = wrapper.findAll('.present-now .toolbar .btn').find((b) => b.text() === 'Show results')!;
+    expect(stage(wrapper).text()).toContain('hidden from the audience');
+    expect(stage(wrapper).find('.donut').exists()).toBe(true);
+    expect(status(wrapper)).toContain('Results hidden');
+    const toggle = dock(wrapper).findAll('.btn').find((b) => b.text() === 'Show results')!;
     await toggle.trigger('click');
     await flushPromises();
     expect(patchCalls('admin-storm')).toContainEqual({ cloudId: 2, resultsHidden: false });
   });
 
-  it('keeps the live controls above the results so they stay on screen with a long scale', async () => {
+  it('keeps the live controls in the dock beside the results, so they stay on screen with a long scale', async () => {
     const { wrapper } = await mountPresenter();
     await wrapper.findAll('.seg button')[1].trigger('click');
-    const html = wrapper.find('.present-now').html();
-    expect(html.indexOf('Hide results')).toBeGreaterThan(-1);
-    expect(html.indexOf('Hide results')).toBeLessThan(html.indexOf('sbar'));
-    expect(wrapper.find('.present-now .slide-total').exists()).toBe(false);
+    expect(dockButtons(wrapper)).toContain('Hide results');
+    expect(stage(wrapper).text()).not.toContain('Hide results');
+    expect(stage(wrapper).find('.sbar').exists()).toBe(true);
+    expect(stage(wrapper).find('.slide-total').exists()).toBe(false);
   });
 
   it('reveals the correct answer for the live cloud', async () => {
     const { wrapper } = await mountPresenter();
     await wrapper.findAll('.seg button')[1].trigger('click');
-    await wrapper.findAll('.present-now .toolbar .btn').find((b) => b.text() === 'Reveal answer')!.trigger('click');
+    expect(stage(wrapper).find('.correct-note').text()).toContain('(hidden from audience)');
+    await dock(wrapper).findAll('.btn').find((b) => b.text() === 'Reveal answer')!.trigger('click');
     expect(patchCalls('admin-storm')).toContainEqual({ cloudId: 1, answerShown: true });
+  });
+
+  it('Go live in the dock cloud list activates that cloud', async () => {
+    const { wrapper } = await mountPresenter();
+    await wrapper.findAll('.seg button')[1].trigger('click');
+    await dock(wrapper).findAll('.cloud-list .li')[1].findAll('button').find((b) => b.text() === 'Go live')!.trigger('click');
+    await flushPromises();
+    expect(patchCalls('admin-storm')).toContainEqual({ status: 'active', currentCloudId: 2 });
+    expect(stage(wrapper).text()).toContain('Cloud 2');
+  });
+
+  describe('the edit overlay in Present mode', () => {
+    async function presenting() {
+      const mounted = await mountPresenter();
+      await mounted.wrapper.findAll('.seg button')[1].trigger('click');
+      return mounted;
+    }
+    const editButton = (wrapper: ReturnType<typeof mount>) => dock(wrapper).find('button.edit-cloud');
+
+    it('Edit cloud opens the form for the live cloud over the stage, and saving returns with the same cloud live and its new text', async () => {
+      const { wrapper } = await presenting();
+      (editButton(wrapper).element as HTMLElement).focus();
+      await editButton(wrapper).trigger('click');
+      await flushPromises();
+      const dialog = editDialog(wrapper);
+      expect(dialog.exists()).toBe(true);
+      expect(dialog.attributes('aria-modal')).toBe('true');
+      expect(wrapper.find('.present-stage').exists()).toBe(true);
+      expect((dialog.find('textarea').element as HTMLTextAreaElement).value).toBe('Cloud 1');
+      expect(dialog.element.contains(document.activeElement)).toBe(true);
+      await dialog.find('textarea').setValue('Renamed live');
+      await btn(wrapper, 'Save cloud').trigger('click');
+      await flushPromises();
+      expect(patchCalls('admin-clouds').filter((b) => b.edit)).toEqual([expect.objectContaining({ cloudId: 1, edit: expect.objectContaining({ body: 'Renamed live' }) })]);
+      expect(editDialog(wrapper).exists()).toBe(false);
+      expect(wrapper.find('.present-overlay').exists()).toBe(false);
+      expect(stage(wrapper).text()).toContain('Renamed live');
+      expect(dock(wrapper).text()).toContain('Cloud 1 of 2');
+      expect(patchCalls('admin-storm')).toEqual([]);
+      expect(document.activeElement).toBe(editButton(wrapper).element);
+    });
+
+    it('E opens it too; Cancel closes it and focus returns to Edit cloud', async () => {
+      const { wrapper } = await presenting();
+      await press('e');
+      expect(editDialog(wrapper).exists()).toBe(true);
+      await btn(wrapper, 'Cancel').trigger('click');
+      await flushPromises();
+      expect(editDialog(wrapper).exists()).toBe(false);
+      expect(calls.some((c) => c.method === 'PATCH')).toBe(false);
+      expect(document.activeElement).toBe(editButton(wrapper).element);
+    });
+
+    it('with the dock collapsed, E then Cancel puts focus on the Controls handle, not the page body', async () => {
+      const { wrapper } = await presenting();
+      await press('d');
+      expect(wrapper.find('.dock-handle').exists()).toBe(true);
+      (document.activeElement as HTMLElement | null)?.blur?.();
+      await press('e');
+      expect(editDialog(wrapper).exists()).toBe(true);
+      await btn(wrapper, 'Cancel').trigger('click');
+      await flushPromises();
+      expect(editDialog(wrapper).exists()).toBe(false);
+      expect(document.activeElement).toBe(wrapper.find('.dock-handle').element);
+    });
+
+    it('a failed save keeps it open with the error shown inside it', async () => {
+      const { wrapper } = await presenting();
+      await editButton(wrapper).trigger('click');
+      await flushPromises();
+      failNext = new FakeApiError('The server said no', 500);
+      await btn(wrapper, 'Save cloud').trigger('click');
+      await flushPromises();
+      expect(editDialog(wrapper).exists()).toBe(true);
+      expect(editDialog(wrapper).find('[role=alert]').text()).toContain("Couldn't complete that: The server said no");
+    });
+
+    it('never fires a shortcut for letters typed into the form (Review Focus 1)', async () => {
+      const { wrapper } = await presenting();
+      await editButton(wrapper).trigger('click');
+      await flushPromises();
+      const textarea = editDialog(wrapper).find('textarea');
+      for (const k of ['h', 'e', 'l', 'p', 'j', 'd', 'f', 't', '1', 'ArrowRight']) await press(k, textarea.element);
+      for (const k of ['h', 'j']) await press(k, editDialog(wrapper).find('select').element);
+      expect(calls.some((c) => c.method === 'PATCH')).toBe(false);
+      expect(editDialog(wrapper).exists()).toBe(true);
+      expect(dock(wrapper).exists()).toBe(true);
+      // Not in a field, the letters are still inert while the overlay is open.
+      for (const k of ['h', 'j', 'd', 'ArrowRight']) await press(k);
+      expect(calls.some((c) => c.method === 'PATCH')).toBe(false);
+      expect(dock(wrapper).exists()).toBe(true);
+    });
+
+    it('Escape closes it only when focus is not in a field, and never leaves Present mode', async () => {
+      const { wrapper } = await presenting();
+      await editButton(wrapper).trigger('click');
+      await flushPromises();
+      const textarea = editDialog(wrapper).find('textarea');
+      (textarea.element as HTMLElement).focus();
+      await press('Escape', textarea.element);
+      expect(editDialog(wrapper).exists()).toBe(true);
+      const dialogEl = editDialog(wrapper).element as HTMLElement;
+      dialogEl.focus();
+      await press('Escape', dialogEl);
+      expect(editDialog(wrapper).exists()).toBe(false);
+      expect(wrapper.find('.present-stage').exists()).toBe(true);
+      expect(document.activeElement).toBe(editButton(wrapper).element);
+    });
+
+    it('closes when the link changes to another Storm, so the old cloud is never edited over the new one', async () => {
+      dataFor = { OTHER001: { ...data, storm: { ...data.storm, storm_code: 'OTHER001', current_cloud_id: 9 }, clouds: [cloud(9, { body: 'Other cloud', storm_code: 'OTHER001' })] } };
+      const { wrapper, router } = await presenting();
+      await editButton(wrapper).trigger('click');
+      await flushPromises();
+      expect(editDialog(wrapper).exists()).toBe(true);
+      await router.push(`/presenter/OTHER001#k=${SECRET}`);
+      await flushPromises();
+      expect(stage(wrapper).text()).toContain('Other cloud');
+      expect(editDialog(wrapper).exists()).toBe(false);
+      expect(wrapper.find('.present-overlay').exists()).toBe(false);
+      // Editing the new Storm's cloud starts from its own text.
+      await editButton(wrapper).trigger('click');
+      await flushPromises();
+      expect((editDialog(wrapper).find('textarea').element as HTMLTextAreaElement).value).toBe('Other cloud');
+    });
+
+    it('is not shown in Edit mode, where the form stays in the Clouds tab', async () => {
+      const { wrapper } = await mountPresenter();
+      await wrapper.findAll('.cloud')[0].find('.icon-btn').trigger('click');
+      expect(wrapper.find('.present-overlay').exists()).toBe(false);
+      expect(wrapper.find('.presenter-main .cloud-form').exists()).toBe(true);
+    });
+  });
+
+  describe('on a phone', () => {
+    beforeEach(() => {
+      window.matchMedia = vi.fn((query: string) => ({ matches: false, media: query, addEventListener() {}, removeEventListener() {} }) as unknown as MediaQueryList);
+    });
+    afterEach(() => {
+      delete (window as { matchMedia?: unknown }).matchMedia;
+    });
+
+    it('Edit cloud in the Controls sheet closes the sheet and moves focus into the form; closing it returns focus to Controls', async () => {
+      const { wrapper } = await mountPresenter();
+      await wrapper.findAll('.seg button')[1].trigger('click');
+      await flushPromises();
+      expect(wrapper.find('.dock-bar').exists()).toBe(true);
+      const controls = wrapper.find('.dock-bar .bar-controls');
+      (controls.element as HTMLElement).focus();
+      await controls.trigger('click');
+      await flushPromises();
+      const sheet = wrapper.find('[role=dialog][aria-label=Controls]');
+      await sheet.find('button.edit-cloud').trigger('click');
+      await flushPromises();
+      expect(wrapper.find('[role=dialog][aria-label=Controls]').exists()).toBe(false);
+      expect(editDialog(wrapper).exists()).toBe(true);
+      expect(editDialog(wrapper).element.contains(document.activeElement)).toBe(true);
+      await btn(wrapper, 'Cancel').trigger('click');
+      await flushPromises();
+      expect(document.activeElement).toBe(wrapper.find('.dock-bar .bar-controls').element);
+    });
   });
 
   it('activates a cloud from its Edit card', async () => {
@@ -262,7 +502,7 @@ describe('PresenterView', () => {
     ]);
   });
 
-  it('opens the share links and QR codes from the header button in either mode, with the results link using the derived key', async () => {
+  it('opens the share links and QR codes from the header button, with the results link using the derived key', async () => {
     const { wrapper } = await mountPresenter();
     expect(wrapper.findAll('.tab').map((t) => t.text())).toEqual(['Clouds (2)', 'Control']);
     expect(wrapper.find('.share-url').exists()).toBe(false);
@@ -271,7 +511,10 @@ describe('PresenterView', () => {
     expect(wrapper.findAll('.share-card .qr-box')).toHaveLength(2);
     await wrapper.findAll('.modal .btn').find((b) => b.text() === 'Close')!.trigger('click');
     expect(wrapper.find('.share-url').exists()).toBe(false);
+    // Present mode has no page header (so no share button); back in the editor it works again.
     await wrapper.findAll('.seg button')[1].trigger('click');
+    expect(wrapper.find('.app-header').exists()).toBe(false);
+    await btn(wrapper, 'Exit').trigger('click');
     await wrapper.find('.app-header .icon-btn').trigger('click');
     expect(wrapper.findAll('.share-url')).toHaveLength(2);
   });
@@ -387,8 +630,6 @@ describe('PresenterView', () => {
     });
 
     describe('Present panel', () => {
-      const voting = (wrapper: ReturnType<typeof mount>) => wrapper.find('.voting-row');
-      const rowButtons = (wrapper: ReturnType<typeof mount>) => voting(wrapper).findAll('button').map((b) => b.text());
       const contentCloud = (over: Partial<AdminCloud> = {}) =>
         cloud(3, { kind: 'content', body: '**Big** idea', options: null, display: null, tally: { totalVotes: 0 } as never, ...over });
       const CHIPS = ['15s', '30s', '1m', '2m', '5m'];
@@ -398,13 +639,12 @@ describe('PresenterView', () => {
         data.storm.current_cloud_id = 3;
         const { wrapper } = await mountPresenter();
         await present(wrapper);
-        const now = wrapper.find('.present-now');
-        await vi.waitFor(() => expect(now.find('.present-prompt strong').text()).toBe('Big'));
-        expect(now.find('.present-count').exists()).toBe(false);
-        const all = now.findAll('button').map((b) => b.text());
-        for (const gone of ['Hide results', 'Show results', 'Reveal answer', 'Lock voting', 'Lock now', 'Unlock voting']) expect(all).not.toContain(gone);
-        expect(voting(wrapper).find('.voting-state').text()).toBe('No timer');
-        expect(rowButtons(wrapper)).toEqual(CHIPS);
+        await vi.waitFor(() => expect(stage(wrapper).find('.stage-title strong').text()).toBe('Big'));
+        expect(stage(wrapper).find('.stage-meta').exists()).toBe(false);
+        const all = wrapper.find('.present-stage').findAll('button').map((b) => b.text());
+        for (const gone of ['Hide results', 'Show results', 'Reveal answer', 'Lock voting', 'Lock now', 'Unlock voting', 'Lock submissions', '+30s', 'Clear timer']) expect(all).not.toContain(gone);
+        expect(status(wrapper)).toContain('No timer');
+        expect(chipsRow(wrapper)).toEqual(CHIPS);
       });
 
       it('labels the live body with its own hidden h2 and never nests the body\'s headings in a heading', async () => {
@@ -412,10 +652,12 @@ describe('PresenterView', () => {
         data.storm.current_cloud_id = 3;
         const { wrapper } = await mountPresenter();
         await present(wrapper);
-        const now = wrapper.find('.present-now');
-        await vi.waitFor(() => expect(now.find('.present-prompt h2').text()).toBe('Title'));
-        expect(now.find('h2.sr-only').text()).toBe('Current cloud');
-        expect(now.find('[role=heading]').exists()).toBe(false);
+        await vi.waitFor(() => expect(stage(wrapper).find('.stage-title h2').text()).toBe('Title'));
+        // The stage is the main landmark, named for what it holds; the body's own headings are never wrapped in another heading.
+        expect(stage(wrapper).attributes('aria-label')).toBe('Current cloud');
+        expect(stage(wrapper).find('[role=heading]').exists()).toBe(false);
+        expect(stage(wrapper).find('h2 h2').exists()).toBe(false);
+        expect(wrapper.find('.present-stage h1.sr-only').text()).toBe('Presenting');
       });
 
       it('shows a running timer with +30s and Clear timer', async () => {
@@ -423,8 +665,15 @@ describe('PresenterView', () => {
         data.storm.current_cloud_id = 3;
         const { wrapper } = await mountPresenter();
         await present(wrapper);
-        expect(voting(wrapper).find('.voting-state').text()).toBe('0:20 left');
-        expect(rowButtons(wrapper)).toEqual(['+30s', 'Clear timer', ...CHIPS]);
+        expect(status(wrapper)).toContain('0:20 left');
+        expect(stage(wrapper).find('.countdown[role=timer]').text()).toBe('0:20');
+        expect(chipsRow(wrapper)).toEqual(CHIPS);
+        expect(dockButtons(wrapper)).toEqual(expect.arrayContaining(['+30s', 'Clear timer']));
+        // A content cloud has no voting to lock: none of the question timer controls appear while it runs.
+        for (const gone of ['Cancel timer', 'Lock now', 'Lock voting', 'Unlock voting', 'Lock submissions', 'Unlock submissions']) {
+          expect(dockButtons(wrapper)).not.toContain(gone);
+        }
+        expect(dock(wrapper).text()).not.toMatch(/Lock|Unlock/);
         await btn(wrapper, 'Clear timer').trigger('click');
         await flushPromises();
         // clearTimer marks the request so the activity notice says "Timer cleared" rather than "Voting open".
@@ -437,8 +686,10 @@ describe('PresenterView', () => {
         data.storm.current_cloud_id = 3;
         const { wrapper } = await mountPresenter();
         await present(wrapper);
-        expect(voting(wrapper).find('.voting-state').text()).toBe("Time's up");
-        expect(rowButtons(wrapper)[0]).toBe('Clear timer');
+        expect(status(wrapper)).toContain("Time's up");
+        expect(stage(wrapper).find('.countdown.ended').text()).toBe("Time's up");
+        expect(dockButtons(wrapper)).toContain('Clear timer');
+        expect(dockButtons(wrapper)).not.toContain('+30s');
       });
 
       it('puts the word moderation list before the word cloud so removing a word needs no scrolling', async () => {
@@ -449,9 +700,9 @@ describe('PresenterView', () => {
         data.storm.current_cloud_id = 4;
         const { wrapper } = await mountPresenter();
         await present(wrapper);
-        const list = wrapper.find('.present-now [aria-label="Words sent"]').element;
-        const removed = wrapper.find('.present-now [aria-label="Removed words"]').element;
-        const cloudEl = wrapper.find('.present-now .word-cloud').element;
+        const list = stage(wrapper).find('[aria-label="Words sent"]').element;
+        const removed = stage(wrapper).find('[aria-label="Removed words"]').element;
+        const cloudEl = stage(wrapper).find('.word-cloud').element;
         expect(list.compareDocumentPosition(cloudEl) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
         expect(list.compareDocumentPosition(removed) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
         expect(removed.compareDocumentPosition(cloudEl) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
@@ -465,9 +716,11 @@ describe('PresenterView', () => {
         data.storm.current_cloud_id = 4;
         const { wrapper } = await mountPresenter();
         await present(wrapper);
-        const now = wrapper.find('.present-now');
-        expect(voting(wrapper).find('.voting-state').text()).toBe('Submissions open');
-        expect(rowButtons(wrapper)[0]).toBe('Lock submissions');
+        const now = stage(wrapper);
+        expect(status(wrapper)).toContain('Submissions open');
+        expect(now.text()).toContain('people have sent words');
+        expect(dockButtons(wrapper)).toContain('Lock submissions');
+        expect(dockButtons(wrapper)).not.toContain('Lock voting');
         expect(now.find('[aria-label="Restore gone"]').exists()).toBe(true);
         await now.find('[aria-label="Remove rude"]').trigger('click');
         await flushPromises();
@@ -476,6 +729,9 @@ describe('PresenterView', () => {
         await btn(wrapper, 'Lock submissions').trigger('click');
         await flushPromises();
         expect(patchCalls('admin-storm')).toEqual([{ cloudId: 4, votingLocked: true, words: true }]);
+        await stage(wrapper).find('[aria-label="Restore gone"]').trigger('click');
+        await flushPromises();
+        expect(patchCalls('admin-clouds')).toEqual([{ cloudId: 4, hideWord: 'rude' }, { cloudId: 4, showWord: 'gone' }]);
       });
     });
 
@@ -502,13 +758,13 @@ describe('PresenterView', () => {
       await mounted.wrapper.findAll('.seg button')[1].trigger('click');
       return mounted;
     }
-    const voting = (wrapper: ReturnType<typeof mount>) => wrapper.find('.voting-row');
-    const rowButtons = (wrapper: ReturnType<typeof mount>) => voting(wrapper).findAll('button').map((b) => b.text());
 
     it('offers to lock voting and start a timer on the live cloud', async () => {
       const { wrapper } = await presentMode();
-      expect(voting(wrapper).find('.voting-state').text()).toBe('Voting open');
-      expect(rowButtons(wrapper)).toEqual(['Lock voting', '15s', '30s', '1m', '2m', '5m']);
+      expect(status(wrapper)).toContain('Voting open');
+      expect(chipsRow(wrapper)).toEqual(['15s', '30s', '1m', '2m', '5m']);
+      expect(dockButtons(wrapper)).toContain('Lock voting');
+      for (const gone of ['+30s', 'Cancel timer', 'Lock now', 'Unlock voting']) expect(dockButtons(wrapper)).not.toContain(gone);
 
       await btn(wrapper, 'Lock voting').trigger('click');
       await btn(wrapper, '30s').trigger('click');
@@ -524,8 +780,10 @@ describe('PresenterView', () => {
     it('shows the countdown while a timer runs, and can add time, lock now or cancel', async () => {
       data.clouds[0].voting_ms_left = 20000;
       const { wrapper } = await presentMode();
-      expect(voting(wrapper).find('.voting-state').text()).toBe('0:20 left');
-      expect(rowButtons(wrapper)).toEqual(['Lock now', '+30s', 'Cancel timer', '15s', '30s', '1m', '2m', '5m']);
+      expect(status(wrapper)).toContain('0:20 left');
+      expect(stage(wrapper).find('.countdown').text()).toBe('0:20');
+      expect(dockButtons(wrapper)).toEqual(expect.arrayContaining(['Lock now', '+30s', 'Cancel timer', '15s', '30s', '1m', '2m', '5m']));
+      expect(dockButtons(wrapper)).not.toContain('Lock voting');
 
       await btn(wrapper, '+30s').trigger('click');
       await btn(wrapper, 'Cancel timer').trigger('click');
@@ -542,8 +800,9 @@ describe('PresenterView', () => {
     it('says when voting is closed and offers to unlock it', async () => {
       data.clouds[0].voting_ms_left = 0;
       const { wrapper } = await presentMode();
-      expect(voting(wrapper).find('.voting-state').text()).toBe('Voting closed');
-      expect(rowButtons(wrapper)[0]).toBe('Unlock voting');
+      expect(status(wrapper)).toContain('Voting closed');
+      expect(stage(wrapper).find('.countdown.ended').text()).toBe('Voting closed');
+      expect(dockButtons(wrapper)).toContain('Unlock voting');
       await btn(wrapper, 'Unlock voting').trigger('click');
       await flushPromises();
       expect(patchCalls('admin-storm')).toEqual([{ cloudId: 1, votingLocked: false }]);
@@ -746,7 +1005,7 @@ describe('PresenterView', () => {
     channel.handlers.tally({ cloudId: 1, counts: [5, 0], totalVotes: 5 });
     await flushPromises();
     await wrapper.findAll('.seg button')[1].trigger('click');
-    expect(wrapper.find('.present-count').text()).toBe('5');
+    expect(stage(wrapper).find('.stage-meta strong').text()).toBe('5');
     const before = calls.filter((c) => c.path === 'admin-storm' && !c.method).length;
     channel.handlers.tally({ cloudId: 1, totalVotes: 6, hidden: true });
     await flushPromises();
