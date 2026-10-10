@@ -10,14 +10,14 @@ VoteStorm is designed to give organizations and individuals control over their o
 
 ## What it does today
 
-- **Presenter** creates a Storm, adds questions, and runs the session from one page. Edit mode is for setup; Present mode keeps only what you need while presenting.
-- **Audience** joins from any device with one link or QR code. Votes are anonymous, and people can change their answer while a question is live.
-- **Question types:** single choice, multiple answers, and rating scales. A question can have a correct answer that is revealed on demand.
-- **Live results** on a big-screen page: a bar chart or a donut chart, both updating as votes arrive, a join screen with a live connected count, a background colour you can match to your slides, and the option to hide results until everyone has answered. Presenters can lock voting or run a countdown timer on the live question, name a Storm, duplicate it to reuse its questions, and find recent Storms again under Your Storms (kept in the browser). Presenter and results links keep their secret after the `#`, so it never reaches server logs.
-- **Slides:** each question has its own results link that can be embedded in a slide deck. Opening it makes that question live (a closed Storm is never reopened).
-- **Closed Storms** show every question with its final results as a swipeable view.
+- **Presenter** creates a Storm, adds clouds, and runs the session from one page. Edit mode is for setup; Present mode keeps only what you need while presenting.
+- **Audience** joins from any device with one link or QR code. Votes are anonymous, and people can change their answer while a cloud is live.
+- **Cloud kinds:** questions (single choice, multiple answers and rating scales), word clouds, and content with markdown and images. A question can have a correct answer that is revealed on demand.
+- **Live results** on a big-screen page: a bar chart or a donut chart, both updating as votes arrive, a join screen with a live connected count, a background colour you can match to your slides, and the option to hide results until everyone has answered. Presenters can lock voting or run a countdown timer on the live cloud, name a Storm, duplicate it to reuse its clouds, and find recent Storms again under Your Storms (kept in the browser). Presenter and results links keep their secret after the `#`, so it never reaches server logs.
+- **Slides:** each question or word cloud has its own results link that can be embedded in a slide deck. Opening it makes that cloud live (a closed Storm is never reopened).
+- **Closed Storms** show every cloud with its final results as a swipeable view.
 
-Polling is the core activity. The product is intended to grow into broader audience interaction (quizzes, Q&A, word clouds, reactions, and so on), but those are not implemented yet.
+Polling is the core activity. The product is intended to grow into broader audience interaction (quizzes, Q&A, reactions, and so on), but those are not implemented yet.
 
 ## Getting started
 
@@ -57,7 +57,7 @@ Every VoteStorm server needs its own signing key and a license for anonymous use
    npm run license -- mint --anonymous --issuer https://licenses.example.com --hours 24 --max-questions 50 --max-audience 500 --max-storms 100
    ```
 
-   The limits are hours before a Storm expires, questions per Storm, audience per Storm, and (`--max-storms`) how many anonymous Storms can exist at once on the whole server.
+   The limits are hours before a Storm expires, clouds per Storm, audience per Storm, and (`--max-storms`) how many anonymous Storms can exist at once on the whole server.
 
    It prints a third line:
 
@@ -115,11 +115,11 @@ Never commit `.env` or your keys. Without `TURSO_DATABASE_URL` a hosted deployme
 
 ## Abuse protection
 
-Requests that strangers can send are rate limited per address (a hash of it is stored, never the address itself): creating or duplicating Storms (20 per hour), voting (2,000 per minute per address and 30 per minute per device), adding questions (120 per minute) and real-time tokens (600 per minute). The limits are deliberately generous because a whole audience can share one public address; scale them with `RATE_LIMIT_SCALE`. Question text and options have length limits, and real-time access is only given to Storms that exist.
+Requests that strangers can send are rate limited per address (a hash of it is stored, never the address itself): creating or duplicating Storms (20 per hour), voting (2,000 per minute per address and 30 per minute per device), adding clouds (120 per minute) and real-time tokens (600 per minute). The limits are deliberately generous because a whole audience can share one public address; scale them with `RATE_LIMIT_SCALE`. Cloud text and options have length limits, and real-time access is only given to Storms that exist.
 
 ## Licensing
 
-Every limit comes from a signed license, including the one that anonymous users run under (inactivity expiry, questions per Storm, audience per Storm and active Storms). Licenses can come from any issuer you choose to trust. See [docs/licensing.md](docs/licensing.md).
+Every limit comes from a signed license, including the one that anonymous users run under (inactivity expiry, clouds per Storm, audience per Storm and active Storms). Licenses can come from any issuer you choose to trust. See [docs/licensing.md](docs/licensing.md).
 
 ## How it is built
 

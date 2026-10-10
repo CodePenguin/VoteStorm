@@ -76,7 +76,7 @@ function resetColor() {
       </p>
       <p class="muted" style="font-size: .82rem; margin-top: 12px">
         The join screen puts the QR code and live connection count on the results display so latecomers can get connected. It shows automatically
-        before the first question; use this to bring it back at any time.
+        before the first cloud; use this to bring it back at any time.
       </p>
     </div>
 
@@ -100,7 +100,7 @@ function resetColor() {
         <button class="btn danger" @click="store.deleteStorm().then((ok) => ok && emit('deleted'))">Delete Storm</button>
       </div>
       <p class="muted" style="font-size: .82rem; margin-top: 12px">
-        Ending a Storm stops voting but keeps results; reopening resumes it. Duplicating makes a new Storm with the same questions and background, and no votes. Deleting removes the Storm and all votes permanently.
+        Ending a Storm stops voting but keeps results; reopening resumes it. Duplicating makes a new Storm with the same clouds and background, and no votes. Deleting removes the Storm and all votes permanently.
       </p>
     </div>
   </div>

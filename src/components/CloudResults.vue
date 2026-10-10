@@ -1,19 +1,20 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import type { Question, Tally } from '@/shared/types';
+import type { Cloud, Tally } from '@/shared/types';
 import {
-  DONUT_COLORS, countFor, donutSegments, formatAverage, hasCounts, isHiddenTally, isLeader, pctFor, ratingValues, responsesLabel,
+  DONUT_COLORS, countFor, donutSegments, formatAverage, hasCounts, isHiddenTally, isLeader, pctFor, ratingValues, responsesLabel, wordsOf,
 } from '@/lib/tally';
+import WordCloud from '@/components/WordCloud.vue';
 
-const props = defineProps<{ question: Question; tally: Tally; large?: boolean; projector?: boolean; hideTotal?: boolean }>();
+const props = defineProps<{ cloud: Cloud; tally: Tally; large?: boolean; projector?: boolean; hideTotal?: boolean }>();
 
 const total = computed(() => props.tally.totalVotes || 0);
-const hidden = computed(() => props.question.resultsHidden || isHiddenTally(props.tally));
+const hidden = computed(() => props.cloud.resultsHidden || isHiddenTally(props.tally));
 // A donut already shows the total in its centre, and some screens show it elsewhere.
-const showTotal = computed(() => !hidden.value && !props.hideTotal && !(props.question.type === 'choice' && props.question.display === 'donut'));
+const showTotal = computed(() => !hidden.value && !props.hideTotal && props.cloud.kind !== 'content' && props.cloud.kind !== 'words' && !(props.cloud.kind === 'choice' && props.cloud.display === 'donut'));
 const visible = computed(() => (hasCounts(props.tally) ? props.tally : { counts: [] as number[], totalVotes: total.value }));
-const options = computed(() => props.question.options ?? []);
-const isCorrect = (i: number) => (props.question.correct ?? []).includes(i);
+const options = computed(() => props.cloud.options ?? []);
+const isCorrect = (i: number) => (props.cloud.correct ?? []).includes(i);
 const segments = computed(() => donutSegments(options.value.map((_, i) => countFor(visible.value, i))));
 const donutLabel = computed(() => {
   const parts = options.value.map((opt, i) => `${opt}: ${countFor(visible.value, i)} (${pctFor(visible.value, i)}%)`);
@@ -23,13 +24,20 @@ const average = computed(() => ('average' in visible.value ? visible.value.avera
 </script>
 
 <template>
-  <div class="results-view" :class="{ large: large || projector, projector, rating: question.type === 'rating' }">
+  <div class="results-view" :class="{ large: large || projector, projector, rating: cloud.kind === 'rating' }">
     <div v-if="hidden" class="hidden-results">
       <div class="big-count">{{ total }}</div>
       <p>{{ total === 1 ? 'response received' : 'responses received' }}</p>
     </div>
 
-    <template v-else-if="question.type === 'choice' && question.display === 'donut'">
+    <template v-else-if="cloud.kind === 'words'">
+      <WordCloud :words="wordsOf(tally)" :large="large || projector" />
+      <p v-if="!hideTotal" class="slide-total">{{ total }} {{ total === 1 ? 'person has' : 'people have' }} sent words</p>
+    </template>
+
+    <template v-else-if="cloud.kind === 'content'"></template>
+
+    <template v-else-if="cloud.kind === 'choice' && cloud.display === 'donut'">
       <div class="donut-wrap">
         <div class="donut" role="img" :aria-label="donutLabel">
           <svg viewBox="0 0 42 42">
@@ -51,7 +59,7 @@ const average = computed(() => ('average' in visible.value ? visible.value.avera
       </div>
     </template>
 
-    <template v-else-if="question.type === 'choice'">
+    <template v-else-if="cloud.kind === 'choice'">
       <div v-for="(opt, i) in options" :key="i" class="sbar" :class="{ leader: isLeader(visible, i), correct: isCorrect(i) }">
         <div class="sbar-head">
           <span class="label">{{ opt }}</span>
@@ -62,7 +70,7 @@ const average = computed(() => ('average' in visible.value ? visible.value.avera
     </template>
 
     <template v-else>
-      <div v-for="v in ratingValues(question)" :key="v" class="sbar" :class="{ leader: isLeader(visible, v) }">
+      <div v-for="v in ratingValues(cloud)" :key="v" class="sbar" :class="{ leader: isLeader(visible, v) }">
         <div class="sbar-head">
           <span class="label">{{ v }}</span>
           <span class="count">{{ countFor(visible, v) }}</span>
@@ -83,7 +91,7 @@ const average = computed(() => ('average' in visible.value ? visible.value.avera
 .hidden-results { text-align: center; padding: 32px 0; color: var(--text-muted); }
 .hidden-results .big-count { font-size: 3.5rem; font-weight: 800; line-height: 1; color: var(--accent); font-variant-numeric: tabular-nums; margin-bottom: 8px; }
 .results-view.large .hidden-results { padding: 48px 0; }
-.results-view.large .hidden-results .big-count { font-size: clamp(5rem, 16vw, 12rem); margin-bottom: 12px; }
+.results-view.large .hidden-results .big-count { font-size: calc(var(--fit, 1) * clamp(5rem, 16vw, 12rem)); margin-bottom: 12px; }
 .results-view.large .hidden-results p { font-size: clamp(1.3rem, 2.6vw, 2.2rem); }
 .results-view.large .sbar { margin: 18px 0; }
 .results-view.large .sbar-head { font-size: clamp(1.1rem, 1.8vw, 1.7rem); margin-bottom: 8px; }
@@ -103,14 +111,14 @@ const average = computed(() => ('average' in visible.value ? visible.value.avera
 .results-view.rating.large:not(.projector) .sbar-track { height: clamp(12px, 1.6vw, 22px); }
 
 /* Projector: label | bar | count rows, as on the big results screen. */
-.results-view.projector .sbar { display: grid; grid-template-columns: minmax(120px, 340px) 1fr 190px; align-items: center; gap: 24px; margin: 0 0 clamp(5px, 1.2vh, 18px); font-size: clamp(1rem, min(2.2vw, 3vh), 2rem); }
+.results-view.projector .sbar { display: grid; grid-template-columns: minmax(120px, 340px) 1fr 190px; align-items: center; gap: calc(var(--fit, 1) * 24px); margin: 0 0 calc(var(--fit, 1) * clamp(5px, 1.2vh, 18px)); font-size: calc(var(--fit, 1) * clamp(1rem, min(2.2vw, 3vh), 2rem)); }
 .results-view.projector .sbar-head { display: contents; font-size: inherit; margin: 0; }
 .results-view.projector .sbar-head .label { order: 1; text-align: right; font-weight: 600; overflow-wrap: anywhere; }
-.results-view.projector .sbar-track { order: 2; height: clamp(16px, min(3.4vw, 3.4vh), 56px); border-radius: 0; background: var(--surface); border: 1px solid var(--border); }
+.results-view.projector .sbar-track { order: 2; height: calc(var(--fit, 1) * clamp(16px, min(3.4vw, 3.4vh), 56px)); border-radius: 0; background: var(--surface); border: 1px solid var(--border); }
 .results-view.projector .sbar-fill { border-radius: 0; }
 .results-view.projector .sbar-head .count { order: 3; font-weight: 700; }
-.results-view.projector .slide-average { margin-top: clamp(8px, 2.4vh, 36px); gap: 14px; }
-.results-view.projector .slide-average strong { font-size: clamp(2rem, min(5vw, 7vh), 4rem); }
+.results-view.projector .slide-average { margin-top: calc(var(--fit, 1) * clamp(8px, 2.4vh, 36px)); gap: 14px; }
+.results-view.projector .slide-average strong { font-size: calc(var(--fit, 1) * clamp(2rem, min(5vw, 7vh), 4rem)); }
 .results-view.projector .slide-total { display: none; }
 @media (max-width: 720px) {
   .results-view.projector .sbar { grid-template-columns: 1fr 90px; gap: 6px 12px; }

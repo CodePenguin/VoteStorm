@@ -5,22 +5,22 @@ import type * as Ably from 'ably';
 import { ApiError } from '@/api';
 import { subscribeStorm } from '@/composables/useStormChannel';
 import { usePresenter } from '@/composables/usePresenter';
-import { blankForm, formFromQuestion, statusLabel } from '@/lib/presenter';
+import { blankForm, formFromCloud, statusLabel } from '@/lib/presenter';
 import type { AdminSession } from '@/lib/adminRequest';
 import { createStorm as makeStorm } from '@/lib/createStorm';
 import { fragmentFor, presenterLocation, readFragment } from '@/lib/fragment';
 import { forgetStorm, rememberStorm } from '@/lib/recentStorms';
 import { normalizeStormCode } from '@/lib/stormCode';
-import type { AdminQuestion, QuestionForm, QuestionPayload } from '@/shared/types';
+import type { AdminCloud, CloudForm, CloudPayload } from '@/shared/types';
 import BrandMark from '@/components/BrandMark.vue';
 import ControlTab from '@/components/presenter/ControlTab.vue';
 import PresentPanel from '@/components/presenter/PresentPanel.vue';
-import QuestionCard from '@/components/presenter/QuestionCard.vue';
-import QuestionFormView from '@/components/presenter/QuestionForm.vue';
+import CloudCard from '@/components/presenter/CloudCard.vue';
+import CloudFormView from '@/components/presenter/CloudForm.vue';
 import ShareTab from '@/components/presenter/ShareTab.vue';
 
-type Tab = 'questions' | 'storm';
-const TABS: Tab[] = ['questions', 'storm'];
+type Tab = 'clouds' | 'storm';
+const TABS: Tab[] = ['clouds', 'storm'];
 
 const route = useRoute();
 const router = useRouter();
@@ -42,11 +42,11 @@ function readMode(): 'edit' | 'present' {
 
 const mode = ref<'edit' | 'present'>(readMode());
 const hashTab = readFragment(route.hash).get('t') as Tab;
-const tab = ref<Tab>(TABS.includes(hashTab) ? hashTab : 'questions');
+const tab = ref<Tab>(TABS.includes(hashTab) ? hashTab : 'clouds');
 const showShare = ref(false);
 const showForm = ref(false);
 const editingId = ref<number | null>(null);
-const form = ref<QuestionForm>(blankForm());
+const form = ref<CloudForm>(blankForm());
 let ably: Ably.Realtime | null = null;
 
 function setMode(next: 'edit' | 'present') {
@@ -80,16 +80,16 @@ function cancelForm() {
   form.value = blankForm();
 }
 
-function startEdit(q: AdminQuestion) {
-  form.value = formFromQuestion(q);
+function startEdit(q: AdminCloud) {
+  form.value = formFromCloud(q);
   editingId.value = q.id;
   showForm.value = true;
-  setTab('questions');
+  setTab('clouds');
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
-async function save(payload: QuestionPayload) {
-  if (await store.saveQuestion(payload, editingId.value)) cancelForm();
+async function save(payload: CloudPayload) {
+  if (await store.saveCloud(payload, editingId.value)) cancelForm();
 }
 
 async function createStorm() {
@@ -103,7 +103,7 @@ async function createStorm() {
 
 async function openCopy(copy: AdminSession) {
   await router.push(presenterLocation(copy.stormCode, copy.secret));
-  setTab('questions');
+  setTab('clouds');
 }
 
 // Counts the loads started, so a slow answer for a Storm the link no longer points at is dropped.
@@ -191,7 +191,7 @@ onBeforeUnmount(() => {
 
       <div v-if="!stormCode" class="card empty">
         <strong>No Storm yet</strong>
-        <p style="margin-bottom: 16px">Create a Storm to start adding questions.</p>
+        <p style="margin-bottom: 16px">Create a Storm to start adding clouds.</p>
         <button class="btn primary" @click="createStorm">Create a new Storm</button>
         <p style="margin-top: 16px"><RouterLink to="/storms">Your Storms</RouterLink></p>
       </div>
@@ -206,29 +206,29 @@ onBeforeUnmount(() => {
 
         <div v-show="mode === 'edit'">
           <div class="tabs" role="tablist">
-            <button class="tab" role="tab" :class="{ on: tab === 'questions' }" :aria-selected="tab === 'questions'" @click="setTab('questions')">
-              Questions <span class="muted">({{ store.questions.value.length }})</span>
+            <button class="tab" role="tab" :class="{ on: tab === 'clouds' }" :aria-selected="tab === 'clouds'" @click="setTab('clouds')">
+              Clouds <span class="muted">({{ store.clouds.value.length }})</span>
             </button>
             <button class="tab" role="tab" :class="{ on: tab === 'storm' }" :aria-selected="tab === 'storm'" @click="setTab('storm')">Control</button>
           </div>
 
-          <div v-show="tab === 'questions'" role="tabpanel">
+          <div v-show="tab === 'clouds'" role="tabpanel">
             <div class="section-head" style="margin-top: 0">
-              <h2>Questions</h2>
-              <button class="btn primary" @click="showForm ? cancelForm() : openAddForm()">{{ showForm ? 'Cancel' : '+ Add question' }}</button>
+              <h2>Clouds</h2>
+              <button class="btn primary" @click="showForm ? cancelForm() : openAddForm()">{{ showForm ? 'Cancel' : '+ Add cloud' }}</button>
             </div>
 
-            <QuestionFormView v-if="showForm" :key="editingId ?? 'new'" v-model="form" :editing="editingId !== null" @save="save" @cancel="cancelForm" />
+            <CloudFormView v-if="showForm" :key="editingId ?? 'new'" v-model="form" :editing="editingId !== null" @save="save" @cancel="cancelForm" />
 
-            <div v-if="store.questions.value.length === 0 && !showForm" class="card empty">
-              <strong>No questions yet</strong>
-              <p>Add your first question to get started.</p>
+            <div v-if="store.clouds.value.length === 0 && !showForm" class="card empty">
+              <strong>No clouds yet</strong>
+              <p>Add your first cloud to get started.</p>
             </div>
 
             <div class="stack">
-              <QuestionCard
-                v-for="(q, index) in store.questions.value" :key="q.id" :q="q" :index="index" :count="store.questions.value.length"
-                :is-live="q.id === store.storm.value.current_question_id" :store="store" @edit="startEdit"
+              <CloudCard
+                v-for="(q, index) in store.clouds.value" :key="q.id" :q="q" :index="index" :count="store.clouds.value.length"
+                :is-live="q.id === store.storm.value.current_cloud_id" :store="store" @edit="startEdit"
               />
             </div>
           </div>
@@ -254,8 +254,8 @@ onBeforeUnmount(() => {
 .tab:focus-visible { outline: 3px solid color-mix(in srgb, var(--accent) 45%, transparent); outline-offset: -3px; border-radius: 6px; }
 .section-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 32px 0 14px; }
 .section-head h2 { font-size: 1.15rem; }
-.question { padding: 18px 20px; }
-.question.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent), var(--shadow); }
+.cloud { padding: 18px 20px; }
+.cloud.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent), var(--shadow); }
 .q-head { display: flex; align-items: flex-start; gap: 12px; }
 .q-num { width: 28px; height: 28px; border-radius: 8px; background: var(--surface-2); color: var(--text-muted); font-size: .85rem; font-weight: 700; display: grid; place-items: center; flex: none; }
 .q-prompt { font-weight: 600; font-size: 1.02rem; }
@@ -272,4 +272,5 @@ onBeforeUnmount(() => {
 .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 999px; padding: 2px; background: var(--surface-2); }
 .seg button { border: 0; background: transparent; color: var(--text-muted); font: inherit; font-size: .82rem; font-weight: 700; padding: 5px 14px; border-radius: 999px; cursor: pointer; }
 .seg button.on { background: var(--accent); color: var(--accent-contrast); }
+@media (max-width: 420px) { .presenter-page .app-header .container { gap: 8px; } }
 </style>

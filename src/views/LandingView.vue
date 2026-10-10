@@ -26,9 +26,9 @@ async function createStorm() {
 }
 
 const steps = [
-  { title: 'Create', text: 'Spin up a Storm and add multiple-choice or rating questions.' },
+  { title: 'Create', text: 'Spin up a Storm and add questions, word clouds, quotes or pictures.' },
   { title: 'Share', text: 'Audience members open one link and vote anonymously on any device.' },
-  { title: 'Watch live', text: 'Advance questions and show results on a big screen as votes arrive.' },
+  { title: 'Watch live', text: 'Advance clouds and show results on a big screen as votes arrive.' },
 ];
 </script>
 
@@ -39,7 +39,7 @@ const steps = [
         <svg viewBox="0 0 24 24" fill="none"><path d="M8.5 2 2 13.2h4.6L5.6 22 12 10.6H7.6L8.5 2Z" fill="currentColor" /><path d="M15 7h7M15 12h5M15 17h3" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" /></svg>
       </span>
       <h1>VoteStorm</h1>
-      <p class="lead">Live polling for presentations, meetings and classrooms. Each session is a <strong>Storm</strong>: add your questions, share one link, and watch the answers arrive as your audience votes from their own devices.</p>
+      <p class="lead">Live polling for presentations, meetings and classrooms. Each session is a <strong>Storm</strong>: add your clouds, share one link, and watch the answers arrive as your audience votes from their own devices.</p>
       <button class="btn primary lg" :disabled="creating" @click="createStorm">{{ creating ? 'Creating…' : 'Create a Storm' }}</button>
       <p v-if="hasRecent" class="your-storms"><RouterLink to="/storms">Your Storms</RouterLink></p>
       <p v-if="error" class="alert error landing-error">

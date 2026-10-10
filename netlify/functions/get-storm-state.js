@@ -1,6 +1,6 @@
 import { createDb, initSchema, getStormByCode, connectVisible } from '../../lib/db.js';
 import { computeTally } from '../../lib/tally.js';
-import { shapeQuestion, publicTally } from '../../lib/question.js';
+import { shapeCloud, publicTally } from '../../lib/cloud.js';
 import { json } from '../../lib/http.js';
 
 export async function handler(event) {
@@ -19,32 +19,32 @@ export async function handler(event) {
     return json(404, { error: 'Storm not found' });
   }
 
-  if (!storm.current_question_id) {
-    return json(200, { status: storm.status, currentQuestion: null, tally: null, showConnect: connectVisible(storm) });
+  if (!storm.current_cloud_id) {
+    return json(200, { status: storm.status, currentCloud: null, tally: null, showConnect: connectVisible(storm) });
   }
 
-  const questionResult = await db.execute({
-    sql: 'SELECT * FROM questions WHERE id = ?',
-    args: [storm.current_question_id],
+  const cloudResult = await db.execute({
+    sql: 'SELECT * FROM clouds WHERE id = ?',
+    args: [storm.current_cloud_id],
   });
-  const question = questionResult.rows[0];
-  if (!question) {
-    // The storm points at a question that no longer exists: treat it as nothing being live.
-    return json(200, { status: storm.status, currentQuestion: null, tally: null, showConnect: connectVisible(storm) });
+  const cloud = cloudResult.rows[0];
+  if (!cloud) {
+    // The storm points at a cloud that no longer exists: treat it as nothing being live.
+    return json(200, { status: storm.status, currentCloud: null, tally: null, showConnect: connectVisible(storm) });
   }
 
   const votesResult = await db.execute({
-    sql: 'SELECT * FROM votes WHERE question_id = ?',
-    args: [question.id],
+    sql: 'SELECT * FROM votes WHERE cloud_id = ?',
+    args: [cloud.id],
   });
 
-  const tally = computeTally(question, votesResult.rows);
+  const tally = computeTally(cloud, votesResult.rows);
 
   const reveal = storm.status === 'closed';
   return json(200, {
     status: storm.status,
-    currentQuestion: shapeQuestion(question, { reveal }),
-    tally: publicTally(question, tally, { reveal }),
+    currentCloud: shapeCloud(cloud, { reveal }),
+    tally: publicTally(cloud, tally, { reveal }),
     showConnect: connectVisible(storm),
   });
 }

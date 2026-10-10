@@ -9,7 +9,7 @@ export function formatClock(ms: number): string {
 }
 
 /**
- * The state of a question's lock or timer on this screen. The server sends how many milliseconds are left (null while
+ * The state of a cloud's lock or timer on this screen. The server sends how many milliseconds are left (null while
  * open, 0 once closed), so the deadline is set from this device's own clock and nobody's clock has to agree.
  */
 export function useVotingClock(msLeft: () => number | null | undefined) {

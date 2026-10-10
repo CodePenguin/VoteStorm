@@ -12,7 +12,7 @@ import { createDb } from '../../lib/db.js';
 import { handler as createStorm } from '../../netlify/functions/create-storm.js';
 import { handler as duplicateStorm } from '../../netlify/functions/duplicate-storm.js';
 import { handler as adminStorm } from '../../netlify/functions/admin-storm.js';
-import { handler as adminQuestions } from '../../netlify/functions/admin-questions.js';
+import { handler as adminClouds } from '../../netlify/functions/admin-clouds.js';
 import { handler as vote } from '../../netlify/functions/vote.js';
 import { bearer, makeIssuer, useIssuer } from '../helpers/issuer.js';
 import { makeAdmin } from '../helpers/admin.js';
@@ -50,14 +50,14 @@ describe('duplicate-storm function', () => {
     const admin = await makeAdmin();
     const created = await post(createStorm, { publicKey: admin.publicKey, resultsKeyHash: admin.resultsKeyHash }, jwt);
     admin.stormCode = JSON.parse(created.body).stormCode;
-    const add = async (q) => JSON.parse((await admin.call(adminQuestions, 'admin-questions', { httpMethod: 'POST', headers: jwt ? bearer(jwt) : {}, body: JSON.stringify(q) })).body).id;
+    const add = async (q) => JSON.parse((await admin.call(adminClouds, 'admin-clouds', { httpMethod: 'POST', headers: jwt ? bearer(jwt) : {}, body: JSON.stringify(q) })).body).id;
     const patch = (body) => admin.call(adminStorm, 'admin-storm', { httpMethod: 'PATCH', headers: {}, body: JSON.stringify(body) });
-    const choiceId = await add({ type: 'choice', prompt: 'Pick', options: ['A', 'B', 'C'], correct: [1], display: 'donut', resultsHidden: true });
-    await add({ type: 'rating', prompt: 'Rate it', scaleMin: 1, scaleMax: 5 });
+    const choiceId = await add({ kind: 'choice', body: 'Pick', options: ['A', 'B', 'C'], correct: [1], display: 'donut', resultsHidden: true });
+    await add({ kind: 'rating', body: 'Rate it', scaleMin: 1, scaleMax: 5 });
     await patch({ resultsBackground: '#1e293b' });
-    await patch({ status: 'active', currentQuestionId: choiceId });
-    await post(vote, { stormCode: admin.stormCode, questionId: choiceId, deviceId: 'dev-1', value: 0 });
-    await patch({ questionId: choiceId, votingLocked: true });
+    await patch({ status: 'active', currentCloudId: choiceId });
+    await post(vote, { stormCode: admin.stormCode, cloudId: choiceId, deviceId: 'dev-1', value: 0 });
+    await patch({ cloudId: choiceId, votingLocked: true });
     return admin;
   }
 
@@ -73,7 +73,7 @@ describe('duplicate-storm function', () => {
     delete process.env.TURSO_DATABASE_URL;
   });
 
-  it('copies the questions and the background into a new Storm, without votes, lock or live question', async () => {
+  it('copies the clouds and the background into a new Storm, without votes, lock or live cloud', async () => {
     const { res, copy } = await duplicate();
     expect(res.statusCode).toBe(200);
     expect(JSON.parse(res.body)).not.toHaveProperty('adminKey');
@@ -81,22 +81,40 @@ describe('duplicate-storm function', () => {
     expect(copy.stormCode).not.toBe(source.stormCode);
 
     const data = await detail(copy);
-    expect(data.questions.map((q) => q.prompt)).toEqual(['Pick', 'Rate it']);
-    expect(data.questions.map((q) => q.order_index)).toEqual([0, 1]);
-    expect(data.questions[0]).toMatchObject({ type: 'choice', options: JSON.stringify(['A', 'B', 'C']), correct: JSON.stringify([1]), display: 'donut', results_hidden: 1 });
-    expect(data.questions[1]).toMatchObject({ type: 'rating', scale_min: 1, scale_max: 5 });
-    expect(data.questions.every((q) => q.tally.totalVotes === 0)).toBe(true);
-    expect(data.questions.every((q) => q.voting_ms_left === null)).toBe(true);
+    expect(data.clouds.map((q) => q.body)).toEqual(['Pick', 'Rate it']);
+    expect(data.clouds.map((q) => q.order_index)).toEqual([0, 1]);
+    expect(data.clouds[0]).toMatchObject({ kind: 'choice', options: JSON.stringify(['A', 'B', 'C']), correct: JSON.stringify([1]), display: 'donut', results_hidden: 1 });
+    expect(data.clouds[1]).toMatchObject({ kind: 'rating', scale_min: 1, scale_max: 5 });
+    expect(data.clouds.every((q) => q.tally.totalVotes === 0)).toBe(true);
+    expect(data.clouds.every((q) => q.voting_ms_left === null)).toBe(true);
     expect(data.resultsBackground).toBe('#1e293b');
-    expect(data.storm).toMatchObject({ status: 'lobby', current_question_id: null });
+    expect(data.storm).toMatchObject({ status: 'lobby', current_cloud_id: null });
+  });
+
+  it('copies a content cloud with the same kind and body', async () => {
+    await source.call(adminClouds, 'admin-clouds', { httpMethod: 'POST', headers: {}, body: JSON.stringify({ kind: 'content', body: '# Read this' }) });
+    const { res, copy } = await duplicate();
+    expect(res.statusCode).toBe(200);
+    const data = await detail(copy);
+    expect(data.clouds).toHaveLength(3);
+    expect(data.clouds[2]).toMatchObject({ kind: 'content', body: '# Read this' });
+  });
+
+  it('copies a words cloud with its limit and removed words', async () => {
+    const id = JSON.parse((await source.call(adminClouds, 'admin-clouds', { httpMethod: 'POST', headers: {}, body: JSON.stringify({ kind: 'words', body: 'One word', maxWords: 6 }) })).body).id;
+    await source.call(adminClouds, 'admin-clouds', { httpMethod: 'PATCH', headers: {}, body: JSON.stringify({ cloudId: id, hideWord: 'rude' }) });
+    const { res, copy } = await duplicate();
+    expect(res.statusCode).toBe(200);
+    const data = await detail(copy);
+    expect(data.clouds[2]).toMatchObject({ kind: 'words', max_words: 6, hidden_words: '["rude"]' });
   });
 
   it('leaves the original untouched', async () => {
     await duplicate();
     const original = await detail(source);
-    expect(original.questions).toHaveLength(2);
-    expect(original.questions[0].tally.totalVotes).toBe(1);
-    expect(original.questions[0].voting_ms_left).toBe(0);
+    expect(original.clouds).toHaveLength(2);
+    expect(original.clouds[0].tally.totalVotes).toBe(1);
+    expect(original.clouds[0].voting_ms_left).toBe(0);
     expect(original.storm.status).toBe('active');
   });
 
@@ -107,8 +125,8 @@ describe('duplicate-storm function', () => {
     expect(b.admin_public_key).not.toBe(a.admin_public_key);
     expect(b.results_key_hash).toBe(copy.resultsKeyHash);
     expect(b.results_key_hash).not.toBe(a.results_key_hash);
-    expect(await count('questions', source.stormCode)).toBe(2);
-    expect(await count('questions', copy.stormCode)).toBe(2);
+    expect(await count('clouds', source.stormCode)).toBe(2);
+    expect(await count('clouds', copy.stormCode)).toBe(2);
   });
 
   it('names the copy after the original', async () => {
@@ -179,17 +197,18 @@ describe('duplicate-storm function', () => {
     expect(JSON.parse(second.body)).toMatchObject({ code: 'storm_limit' });
   });
 
-  it('refuses when the copy would exceed the requester\'s question limit, and creates nothing', async () => {
+  it('refuses when the copy would exceed the requester\'s cloud limit, and creates nothing', async () => {
     const jwt = await issuer.sign({ name: 'Small', maxQuestionsPerStorm: 1 }, { sub: 'small' });
     const { res } = await duplicate({ jwt });
     expect(res.statusCode).toBe(403);
-    expect(JSON.parse(res.body)).toMatchObject({ code: 'question_limit' });
+    expect(JSON.parse(res.body)).toMatchObject({ code: 'cloud_limit' });
+    expect(JSON.parse(res.body).error).toContain('clouds, but your license allows 1 per Storm');
     expect(await stormTotal()).toBe(1);
   });
 
-  it('removes the new Storm again if copying the questions fails', async () => {
+  it('removes the new Storm again if copying the clouds fails', async () => {
     const db = createDb();
-    await db.execute('CREATE TRIGGER no_copies BEFORE INSERT ON questions WHEN NEW.storm_code != \'' + source.stormCode + '\' BEGIN SELECT RAISE(ABORT, \'boom\'); END');
+    await db.execute('CREATE TRIGGER no_copies BEFORE INSERT ON clouds WHEN NEW.storm_code != \'' + source.stormCode + '\' BEGIN SELECT RAISE(ABORT, \'boom\'); END');
     await expect(duplicate()).rejects.toThrow();
     expect(await stormTotal()).toBe(1);
     await db.execute('DROP TRIGGER no_copies');

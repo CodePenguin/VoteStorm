@@ -11,7 +11,7 @@ import type { AdminStormData } from '@/shared/types';
 
 interface Row extends RecentStorm {
   status?: string;
-  questions?: number;
+  clouds?: number;
   lastActiveAt?: number;
   expiresAt?: number;
   unreachable?: boolean;
@@ -28,7 +28,7 @@ async function refresh(row: Row) {
     Object.assign(row, {
       name: data.storm.name ?? null,
       status: data.storm.status,
-      questions: data.questions.length,
+      clouds: data.clouds.length,
       lastActiveAt: last,
       expiresAt: last + Number(data.storm.inactivity_hours ?? 24) * 3600000,
       unreachable: false,
@@ -82,7 +82,7 @@ function forget(row: Row) {
           <strong class="storm-title">{{ row.name || `Storm ${formatStormCode(row.stormCode)}` }}</strong>
           <span class="muted storm-meta">
             <span v-if="row.status" class="badge" :class="row.status">{{ row.status }}</span>
-            <template v-if="row.questions !== undefined">{{ row.questions }} {{ row.questions === 1 ? 'question' : 'questions' }} &middot; </template>
+            <template v-if="row.clouds !== undefined">{{ row.clouds }} {{ row.clouds === 1 ? 'cloud' : 'clouds' }} &middot; </template>
             <template v-if="row.lastActiveAt">active {{ agoLabel(row.lastActiveAt) }} &middot; expires {{ inLabel(row.expiresAt!) }}</template>
             <template v-else-if="row.unreachable">couldn&rsquo;t check right now</template>
             <template v-else>checking&hellip;</template>

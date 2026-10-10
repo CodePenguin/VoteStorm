@@ -21,9 +21,9 @@ vi.mock('@/lib/adminRequest', () => ({ signedApi: (...a: unknown[]) => signedMoc
 
 import StormsView from '@/views/StormsView.vue';
 
-const detail = (over: Record<string, unknown> = {}, questions = 2) => ({
-  storm: { storm_code: 'AAAA1111', status: 'active', current_question_id: null, name: null, created_at: Date.now() - 3600000, last_activity_at: Date.now() - 600000, inactivity_hours: 24, ...over },
-  questions: Array.from({ length: questions }, (_, i) => ({ id: i + 1 })),
+const detail = (over: Record<string, unknown> = {}, clouds = 2) => ({
+  storm: { storm_code: 'AAAA1111', status: 'active', current_cloud_id: null, name: null, created_at: Date.now() - 3600000, last_activity_at: Date.now() - 600000, inactivity_hours: 24, ...over },
+  clouds: Array.from({ length: clouds }, (_, i) => ({ id: i + 1 })),
 });
 
 async function mountStorms() {
@@ -61,10 +61,10 @@ describe('StormsView', () => {
     const rows = wrapper.findAll('.storm-row');
     expect(rows.map((r) => r.find('.storm-title').text())).toEqual(['Town hall', 'Storm BBBB 2222']);
     expect(rows[0].find('.storm-code').text()).toBe('Storm code AAAA 1111');
-    expect(rows[0].text()).toContain('3 questions');
+    expect(rows[0].text()).toContain('3 clouds');
     expect(rows[0].text()).toContain('expires in');
     expect(rows[1].find('.badge').text()).toBe('closed');
-    expect(rows[1].text()).toContain('1 question');
+    expect(rows[1].text()).toContain('1 cloud');
     expect(rows[1].find('.btn:not(.primary)').attributes('aria-label')).toBe('Forget Storm BBBB 2222');
     expect(loadRecent().find((e) => e.stormCode === 'AAAA1111')!.name).toBe('Town hall');
     expect(loadRecent().map((e) => e.stormCode)).toEqual(['AAAA1111', 'BBBB2222']);

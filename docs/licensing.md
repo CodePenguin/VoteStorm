@@ -11,7 +11,7 @@ Every limit lives in the license, including the anonymous tier's (see [The anony
 | `sub` | Stable id of the licensee. Required. Storms are counted per `sub`. | License rejected |
 | `name` | Display name shown on the License page. | None shown |
 | `stormInactivityHours` | A Storm is deleted after this many hours without activity. | The anonymous default (24) |
-| `maxQuestionsPerStorm` | Questions a Storm may hold. | Unlimited |
+| `maxQuestionsPerStorm` | Clouds a Storm may hold. | Unlimited |
 | `maxAudiencePerStorm` | Distinct devices that may vote in a Storm. | Unlimited |
 | `maxActiveStorms` | Storms that may exist at once for this license: the Storms it created that have not been deleted or expired (closed Storms still count until they expire or are deleted). For the anonymous license this caps anonymous Storms across the whole server. | Unlimited |
 | `exp` | When the license stops being accepted. Standard JWT claim. | Never expires |
@@ -23,7 +23,7 @@ Limits must be positive whole numbers; anything else is ignored (treated as unli
 - **Storms keep their license.** When a Storm is created (or when its presenter next loads it carrying a valid license), the license is stored on the Storm. The audience never presents a license, so a Storm's limits keep applying to them.
 - **Expiry** counts presenter actions and audience votes as activity. Merely viewing a page is not activity. A lapsed Storm is removed when anyone next opens it, and by a sweep whenever a Storm is created.
 - **Audience size** counts distinct devices that have voted in the Storm. Devices already counted can keep voting and changing answers.
-- **Questions** cannot be added past the limit. Existing questions can still be edited, reordered and deleted.
+- **Clouds** cannot be added past the limit. Existing clouds can still be edited, reordered and deleted.
 - **Active Storms** are counted per license, by the license that created each Storm (the `sub`, or `anonymous` for the anonymous license). Going over the limit stops new Storms being created until one is deleted or expires; a license cannot use up another's allowance, and presenting a different license on a Storm does not move it between allowances.
 - **An invalid or expired presented license** stops a new Storm from being created, with a message that points to the License page. On an existing Storm it is ignored, so a presenter is never locked out mid-event; the Storm simply keeps the license it was created under.
 - A license that later expires does not shorten Storms that already exist. They run out their inactivity window.

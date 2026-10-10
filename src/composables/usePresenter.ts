@@ -5,7 +5,7 @@ import { describeSecret, generateAdminSecret } from '@/lib/adminKeys';
 import { signedApi, type AdminSession } from '@/lib/adminRequest';
 import { resultsUrl } from '@/lib/fragment';
 import { renameRemembered } from '@/lib/recentStorms';
-import type { AdminQuestion, AdminStorm, AdminStormData, LicenseSummary, QuestionPayload, Tally, VisibleTally } from '@/shared/types';
+import type { AdminCloud, AdminStorm, AdminStormData, LicenseSummary, CloudPayload, Tally, VisibleTally } from '@/shared/types';
 
 export interface PresenterOptions {
   confirm?: (message: string) => boolean;
@@ -17,18 +17,18 @@ export function usePresenter(session: Ref<AdminSession>, options: PresenterOptio
   const confirmFn = options.confirm ?? ((m: string) => window.confirm(m));
 
   const storm = ref<AdminStorm | null>(null);
-  const questions = ref<AdminQuestion[]>([]);
+  const clouds = ref<AdminCloud[]>([]);
   const showConnect = ref(false);
   const resultsBackground = ref<string | null>(null);
   const resultsKey = ref<string | null>(null);
   const license = ref<LicenseSummary | null>(null);
   const error = ref<string | null>(null);
-  const copiedQuestion = ref<number | null>(null);
+  const copiedCloud = ref<number | null>(null);
 
   // Every admin call is signed with the secret; the secret itself is never sent. The function name is signed as given, so it is passed bare.
   const signed = <T = unknown>(fn: string, init: RequestInit = {}) => signedApi<T>(session.value, fn, init);
   const patchStorm = (body: Record<string, unknown>) => signed('admin-storm', { method: 'PATCH', body: JSON.stringify(body) });
-  const patchQuestion = (body: Record<string, unknown>) => signed('admin-questions', { method: 'PATCH', body: JSON.stringify(body) });
+  const patchCloud = (body: Record<string, unknown>) => signed('admin-clouds', { method: 'PATCH', body: JSON.stringify(body) });
 
   // Bumped by reset(), so a load that was started for the previous Storm cannot write its answer over the new one.
   let generation = 0;
@@ -40,7 +40,7 @@ export function usePresenter(session: Ref<AdminSession>, options: PresenterOptio
     const key = (await describeSecret(secret)).resultsKey;
     if (started !== generation) return;
     storm.value = data.storm;
-    questions.value = data.questions;
+    clouds.value = data.clouds;
     showConnect.value = !!data.showConnect;
     resultsBackground.value = data.resultsBackground ?? null;
     resultsKey.value = key;
@@ -51,13 +51,13 @@ export function usePresenter(session: Ref<AdminSession>, options: PresenterOptio
   function reset() {
     generation++;
     storm.value = null;
-    questions.value = [];
+    clouds.value = [];
     showConnect.value = false;
     resultsBackground.value = null;
     resultsKey.value = null;
     license.value = null;
     error.value = null;
-    copiedQuestion.value = null;
+    copiedCloud.value = null;
   }
 
   async function safeLoad() {
@@ -90,8 +90,8 @@ export function usePresenter(session: Ref<AdminSession>, options: PresenterOptio
     }
   }
 
-  function onTally(data: Tally & { questionId: number }) {
-    const q = questions.value.find((x) => x.id === data.questionId);
+  function onTally(data: Tally & { cloudId: number }) {
+    const q = clouds.value.find((x) => x.id === data.cloudId);
     if (!q) return;
     if ('hidden' in data) {
       void safeLoad();
@@ -100,40 +100,40 @@ export function usePresenter(session: Ref<AdminSession>, options: PresenterOptio
     q.tally = data as VisibleTally;
   }
 
-  const currentQ = computed(() => questions.value.find((q) => q.id === storm.value?.current_question_id) ?? null);
-  const currentIndex = computed(() => questions.value.findIndex((q) => q.id === storm.value?.current_question_id));
+  const currentQ = computed(() => clouds.value.find((q) => q.id === storm.value?.current_cloud_id) ?? null);
+  const currentIndex = computed(() => clouds.value.findIndex((q) => q.id === storm.value?.current_cloud_id));
 
   function canStep(dir: number): boolean {
     const i = currentIndex.value;
-    if (i === -1) return dir > 0 && questions.value.length > 0;
-    return i + dir >= 0 && i + dir < questions.value.length;
+    if (i === -1) return dir > 0 && clouds.value.length > 0;
+    return i + dir >= 0 && i + dir < clouds.value.length;
   }
 
-  const activate = (questionId: number) => act(() => patchStorm({ status: 'active', currentQuestionId: questionId }));
+  const activate = (cloudId: number) => act(() => patchStorm({ status: 'active', currentCloudId: cloudId }));
 
-  async function stepQuestion(dir: number) {
+  async function stepCloud(dir: number) {
     if (!canStep(dir)) return;
     const i = currentIndex.value;
-    await activate(questions.value[i === -1 ? 0 : i + dir].id);
+    await activate(clouds.value[i === -1 ? 0 : i + dir].id);
   }
 
   async function swap(i: number, j: number) {
-    const a = questions.value[i];
-    const b = questions.value[j];
+    const a = clouds.value[i];
+    const b = clouds.value[j];
     if (!a || !b) return;
     await act(async () => {
-      await patchQuestion({ questionId: a.id, orderIndex: b.order_index });
-      await patchQuestion({ questionId: b.id, orderIndex: a.order_index });
+      await patchCloud({ cloudId: a.id, orderIndex: b.order_index });
+      await patchCloud({ cloudId: b.id, orderIndex: a.order_index });
     });
   }
 
-  async function saveQuestion(payload: QuestionPayload, editingId: number | null): Promise<boolean> {
+  async function saveCloud(payload: CloudPayload, editingId: number | null): Promise<boolean> {
     return act(async () => {
       if (editingId === null) {
-        await signed('admin-questions', { method: 'POST', body: JSON.stringify(payload) });
+        await signed('admin-clouds', { method: 'POST', body: JSON.stringify(payload) });
         return;
       }
-      const send = (clearVotes: boolean) => patchQuestion({ questionId: editingId, edit: { ...payload, clearVotes } });
+      const send = (clearVotes: boolean) => patchCloud({ cloudId: editingId, edit: { ...payload, clearVotes } });
       try {
         await send(false);
       } catch (e) {
@@ -148,7 +148,7 @@ export function usePresenter(session: Ref<AdminSession>, options: PresenterOptio
     return act(() => signed('admin-storm', { method: 'DELETE' }), false);
   }
 
-  /** Copies this Storm's questions into a new Storm with its own new secret. Returns the copy's session, or null (with the error shown). */
+  /** Copies this Storm's clouds into a new Storm with its own new secret. Returns the copy's session, or null (with the error shown). */
   async function duplicateStorm(): Promise<AdminSession | null> {
     try {
       const made = await generateAdminSecret();
@@ -178,19 +178,26 @@ export function usePresenter(session: Ref<AdminSession>, options: PresenterOptio
     if (await act(() => patchStorm({ resultsBackground: color }), false)) resultsBackground.value = color;
   }
 
-  const lockVoting = (q: AdminQuestion, locked: boolean) => act(() => patchStorm({ questionId: q.id, votingLocked: locked }));
-  const startTimer = (q: AdminQuestion, seconds: number) => act(() => patchStorm({ questionId: q.id, votingSeconds: seconds }));
-  const addTime = (q: AdminQuestion, seconds: number) => act(() => patchStorm({ questionId: q.id, votingAddSeconds: seconds }));
+  /** `words` is only a marker so the activity notice speaks of submissions for a word cloud; the server ignores it. */
+  const lockVoting = (q: AdminCloud, locked: boolean) =>
+    act(() => patchStorm({ cloudId: q.id, votingLocked: locked, ...(q.kind === 'words' ? { words: true } : {}) }));
+  /** Clears a content cloud's timer. `clearTimer` is only a marker for the activity notice; the server ignores it. */
+  const clearTimer = (q: AdminCloud) => act(() => patchStorm({ cloudId: q.id, votingLocked: false, clearTimer: true }));
+  const startTimer = (q: AdminCloud, seconds: number) => act(() => patchStorm({ cloudId: q.id, votingSeconds: seconds }));
+  const addTime = (q: AdminCloud, seconds: number) => act(() => patchStorm({ cloudId: q.id, votingAddSeconds: seconds }));
 
-  const questionLink = (q: AdminQuestion) => resultsUrl(window.location.origin, resultsKey.value ?? '', q.id);
+  const hideWord = (c: AdminCloud, word: string) => act(() => patchCloud({ cloudId: c.id, hideWord: word }));
+  const showWord = (c: AdminCloud, word: string) => act(() => patchCloud({ cloudId: c.id, showWord: word }));
 
-  async function copyQuestionLink(q: AdminQuestion) {
-    const url = questionLink(q);
+  const cloudLink = (q: AdminCloud) => resultsUrl(window.location.origin, resultsKey.value ?? '', q.id);
+
+  async function copyCloudLink(q: AdminCloud) {
+    const url = cloudLink(q);
     if (await copyText(url)) {
-      copiedQuestion.value = q.id;
+      copiedCloud.value = q.id;
       error.value = null;
       setTimeout(() => {
-        if (copiedQuestion.value === q.id) copiedQuestion.value = null;
+        if (copiedCloud.value === q.id) copiedCloud.value = null;
       }, 1500);
     } else {
       error.value = `Could not copy automatically. Use: ${url}`;
@@ -198,16 +205,16 @@ export function usePresenter(session: Ref<AdminSession>, options: PresenterOptio
   }
 
   return {
-    storm, questions, showConnect, resultsBackground, resultsKey, license, error, copiedQuestion,
+    storm, clouds, showConnect, resultsBackground, resultsKey, license, error, copiedCloud,
     currentQ, currentIndex,
-    load, reset, safeLoad, onTally, canStep, stepQuestion, activate, swap, saveQuestion, deleteStorm, duplicateStorm, setName, setConnect, setResultsBackground, lockVoting, startTimer, addTime, copyQuestionLink, questionLink,
-    setQuestionFlag: (flags: Record<string, unknown>) => act(() => patchStorm(flags)),
-    resetQuestion: (questionId: number) => act(() => patchQuestion({ questionId, action: 'reset' })),
+    load, reset, safeLoad, onTally, canStep, stepCloud, activate, swap, saveCloud, deleteStorm, duplicateStorm, setName, setConnect, setResultsBackground, lockVoting, clearTimer, startTimer, addTime, hideWord, showWord, copyCloudLink, cloudLink,
+    setCloudFlag: (flags: Record<string, unknown>) => act(() => patchStorm(flags)),
+    resetCloud: (cloudId: number) => act(() => patchCloud({ cloudId, action: 'reset' })),
     resetStorm: () => act(() => patchStorm({ action: 'reset' })),
     closeStorm: () => act(() => patchStorm({ status: 'closed' })),
-    reopenStorm: () => act(() => patchStorm({ status: storm.value?.current_question_id ? 'active' : 'lobby' })),
-    deleteQuestion: (questionId: number) =>
-      act(() => signed('admin-questions', { method: 'DELETE', body: JSON.stringify({ questionId }) })),
+    reopenStorm: () => act(() => patchStorm({ status: storm.value?.current_cloud_id ? 'active' : 'lobby' })),
+    deleteCloud: (cloudId: number) =>
+      act(() => signed('admin-clouds', { method: 'DELETE', body: JSON.stringify({ cloudId }) })),
   };
 }
 

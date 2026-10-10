@@ -1,13 +1,13 @@
-// Shapes returned by the Netlify functions. Keep in sync with lib/question.js and lib/tally.js.
+// Shapes returned by the Netlify functions. Keep in sync with lib/cloud.js and lib/tally.js.
 
-export type QuestionType = 'choice' | 'rating';
+export type CloudKind = 'choice' | 'rating' | 'words' | 'content';
 export type StormStatus = 'lobby' | 'active' | 'closed';
 export type DisplayType = 'bars' | 'donut';
 
-export interface Question {
+export interface Cloud {
   id: number;
-  type: QuestionType;
-  prompt: string;
+  kind: CloudKind;
+  body: string;
   options: string[] | null;
   scaleMin: number | null;
   scaleMax: number | null;
@@ -18,6 +18,8 @@ export interface Question {
   votingMsLeft?: number | null;
   /** Indexes of the correct options; null until the presenter reveals them. */
   correct: number[] | null;
+  /** Words one person may send; null for other kinds. */
+  maxWords: number | null;
 }
 
 export interface ChoiceTally {
@@ -31,33 +33,39 @@ export interface RatingTally {
   average: number | null;
 }
 
-/** Counts are withheld (hidden: true) while the presenter has hidden a question's results. */
+/** Counts are withheld (hidden: true) while the presenter has hidden a cloud's results. */
 export interface HiddenTally {
   totalVotes: number;
   hidden: true;
 }
 
-export type Tally = ChoiceTally | RatingTally | HiddenTally;
+export type Tally = ChoiceTally | RatingTally | WordsTally | HiddenTally;
 
 export interface StormState {
   status: StormStatus;
-  currentQuestion: Question | null;
+  currentCloud: Cloud | null;
   tally: Tally | null;
   showConnect: boolean;
 }
 
-export type VisibleTally = ChoiceTally | RatingTally;
+/** Words are sorted by count, most used first, with removed words left out. */
+export interface WordsTally {
+  words: { word: string; count: number }[];
+  totalVotes: number;
+}
 
-/** A question plus its final tally, as returned by get-storm-results for closed storms. */
-export type ClosedQuestion = Question & { tally: VisibleTally };
+export type VisibleTally = ChoiceTally | RatingTally | WordsTally;
 
-/** A question row as the presenter API returns it (database column names, JSON stored as text). */
-export interface AdminQuestion {
+/** A cloud plus its final tally, as returned by get-storm-results for closed storms. */
+export type ClosedCloud = Cloud & { tally: VisibleTally };
+
+/** A cloud row as the presenter API returns it (database column names, JSON stored as text). */
+export interface AdminCloud {
   id: number;
   storm_code: string;
   order_index: number;
-  type: QuestionType;
-  prompt: string;
+  kind: CloudKind;
+  body: string;
   options: string | null;
   scale_min: number | null;
   scale_max: number | null;
@@ -66,8 +74,10 @@ export interface AdminQuestion {
   answer_shown: number;
   correct: string | null;
   display: DisplayType | null;
+  max_words: number | null;
+  hidden_words: string | null;
   closes_at?: number | null;
-  /** Same meaning as Question.votingMsLeft, as of when the presenter's page last loaded. */
+  /** Same meaning as Cloud.votingMsLeft, as of when the presenter's page last loaded. */
   voting_ms_left?: number | null;
   tally: VisibleTally;
 }
@@ -75,7 +85,7 @@ export interface AdminQuestion {
 export interface AdminStorm {
   storm_code: string;
   status: StormStatus;
-  current_question_id: number | null;
+  current_cloud_id: number | null;
   name?: string | null;
   created_at?: number;
   last_activity_at?: number | null;
@@ -99,15 +109,15 @@ export interface LicenseSummary {
 
 export interface AdminStormData {
   storm: AdminStorm;
-  questions: AdminQuestion[];
+  clouds: AdminCloud[];
   showConnect: boolean;
   resultsBackground: string | null;
   license: LicenseSummary;
 }
 
-export interface QuestionForm {
-  type: QuestionType;
-  prompt: string;
+export interface CloudForm {
+  kind: CloudKind;
+  body: string;
   optionsText: string;
   correctText: string;
   display: DisplayType;
@@ -115,12 +125,14 @@ export interface QuestionForm {
   multi: boolean;
   scaleMin: number;
   scaleMax: number;
+  maxWords: number;
 }
 
-export interface QuestionPayload {
-  type: QuestionType;
-  prompt: string;
-  resultsHidden: boolean;
+export interface CloudPayload {
+  kind: CloudKind;
+  body: string;
+  resultsHidden?: boolean;
+  maxWords?: number;
   options?: string[];
   multi?: boolean;
   display?: DisplayType;

@@ -22,19 +22,26 @@ describe('db', () => {
     const db = createDb(tempDbUrl());
     await initSchema(db);
     const tables = await db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name");
-    expect(tables.rows.map((r) => r.name)).toEqual(['questions', 'rate_limits', 'storms', 'votes']);
+    expect(tables.rows.map((r) => r.name)).toEqual(['clouds', 'rate_limits', 'storms', 'votes']);
   });
 
-  it('enforces one vote per device per question', async () => {
+  it('gives clouds the word-cloud columns', async () => {
+    const db = createDb(tempDbUrl());
+    await initSchema(db);
+    const columns = (await db.execute('PRAGMA table_info(clouds)')).rows.map((r) => r.name);
+    expect(columns).toEqual(expect.arrayContaining(['max_words', 'hidden_words']));
+  });
+
+  it('enforces one vote per device per cloud', async () => {
     const db = createDb(tempDbUrl());
     await initSchema(db);
     await db.execute({
-      sql: 'INSERT INTO votes (question_id, device_id, value, created_at) VALUES (?, ?, ?, ?)',
+      sql: 'INSERT INTO votes (cloud_id, device_id, value, created_at) VALUES (?, ?, ?, ?)',
       args: [1, 'device-a', '0', Date.now()],
     });
     await expect(
       db.execute({
-        sql: 'INSERT INTO votes (question_id, device_id, value, created_at) VALUES (?, ?, ?, ?)',
+        sql: 'INSERT INTO votes (cloud_id, device_id, value, created_at) VALUES (?, ?, ?, ?)',
         args: [1, 'device-a', '1', Date.now()],
       })
     ).rejects.toThrow();
@@ -63,7 +70,7 @@ describe('db', () => {
     expect(Number(storm.last_activity_at)).toBeGreaterThan(Date.now() - 60000);
   });
 
-  it('deleteStormCascade removes the storm and its questions/votes', async () => {
+  it('deleteStormCascade removes the storm and its clouds/votes', async () => {
     const db = createDb(tempDbUrl());
     await initSchema(db);
     await db.execute({
@@ -71,20 +78,20 @@ describe('db', () => {
       args: ['hash123', 'STORM01', Date.now()],
     });
     await db.execute({
-      sql: `INSERT INTO questions (id, storm_code, order_index, type, prompt, options, created_at) VALUES (1, 'STORM01', 0, 'choice', 'Pick one', ?, ?)`,
+      sql: `INSERT INTO clouds (id, storm_code, order_index, kind, body, options, created_at) VALUES (1, 'STORM01', 0, 'choice', 'Pick one', ?, ?)`,
       args: [JSON.stringify(['A', 'B']), Date.now()],
     });
     await db.execute({
-      sql: 'INSERT INTO votes (question_id, device_id, value, created_at) VALUES (1, ?, ?, ?)',
+      sql: 'INSERT INTO votes (cloud_id, device_id, value, created_at) VALUES (1, ?, ?, ?)',
       args: ['dev-1', '0', Date.now()],
     });
 
     await deleteStormCascade(db, 'STORM01');
 
     expect(await getStormByCode(db, 'STORM01')).toBeNull();
-    const questions = await db.execute({ sql: 'SELECT * FROM questions WHERE storm_code = ?', args: ['STORM01'] });
-    expect(questions.rows).toHaveLength(0);
-    const votes = await db.execute({ sql: 'SELECT * FROM votes WHERE question_id = ?', args: [1] });
+    const clouds = await db.execute({ sql: 'SELECT * FROM clouds WHERE storm_code = ?', args: ['STORM01'] });
+    expect(clouds.rows).toHaveLength(0);
+    const votes = await db.execute({ sql: 'SELECT * FROM votes WHERE cloud_id = ?', args: [1] });
     expect(votes.rows).toHaveLength(0);
   });
 
@@ -116,11 +123,11 @@ describe('db', () => {
       args: ['hx', 'EXPIRD', Date.now(), Date.now() - 30 * 3600000],
     });
     await db.execute({
-      sql: `INSERT INTO questions (id, storm_code, order_index, type, prompt, options, created_at) VALUES (9, 'EXPIRD', 0, 'choice', 'Q', '["a","b"]', ?)`,
+      sql: `INSERT INTO clouds (id, storm_code, order_index, kind, body, options, created_at) VALUES (9, 'EXPIRD', 0, 'choice', 'Q', '["a","b"]', ?)`,
       args: [Date.now()],
     });
     expect(await getStormByCode(db, 'EXPIRD')).toBeNull();
-    const leftovers = await db.execute({ sql: 'SELECT * FROM questions WHERE storm_code = ?', args: ['EXPIRD'] });
+    const leftovers = await db.execute({ sql: 'SELECT * FROM clouds WHERE storm_code = ?', args: ['EXPIRD'] });
     expect(leftovers.rows).toHaveLength(0);
   });
 
@@ -132,7 +139,7 @@ describe('db', () => {
       admin_key_hash TEXT PRIMARY KEY,
       storm_code TEXT UNIQUE,
       status TEXT NOT NULL DEFAULT 'lobby',
-      current_question_id INTEGER,
+      current_cloud_id INTEGER,
       created_at INTEGER NOT NULL,
       license_json TEXT
     )`);
@@ -231,7 +238,7 @@ describe('db', () => {
       admin_key_hash TEXT PRIMARY KEY,
       storm_code TEXT UNIQUE,
       status TEXT NOT NULL DEFAULT 'lobby',
-      current_question_id INTEGER,
+      current_cloud_id INTEGER,
       created_at INTEGER NOT NULL,
       license_id TEXT,
       license_json TEXT
@@ -242,5 +249,76 @@ describe('db', () => {
     await db.execute("UPDATE storms SET admin_public_key = 'pk'");
     expect((await getStormByCode(createDb(url), 'OLDANO')).created_by_license_id).toBe('anonymous');
     expect((await getStormByCode(createDb(url), 'OLDLIC')).created_by_license_id).toBe('acme');
+  });
+
+  describe('a database from before clouds', () => {
+    const OLD_MESSAGE = 'This database is from before clouds: drop the storms, questions and votes tables, then try again.';
+
+    async function makeOldShapedDb(url) {
+      const db = createDb(url);
+      await db.execute(`CREATE TABLE storms (
+        admin_key_hash TEXT PRIMARY KEY,
+        admin_public_key TEXT,
+        storm_code TEXT UNIQUE,
+        status TEXT NOT NULL DEFAULT 'lobby',
+        current_question_id INTEGER,
+        created_at INTEGER NOT NULL,
+        last_activity_at INTEGER,
+        inactivity_hours INTEGER,
+        license_id TEXT,
+        license_json TEXT,
+        created_by_license_id TEXT,
+        created_by_license_name TEXT
+      )`);
+      await db.execute(`CREATE TABLE questions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        storm_code TEXT NOT NULL,
+        order_index INTEGER NOT NULL,
+        type TEXT NOT NULL,
+        prompt TEXT NOT NULL,
+        created_at INTEGER NOT NULL
+      )`);
+      await db.execute(`CREATE TABLE votes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        question_id INTEGER NOT NULL,
+        device_id TEXT NOT NULL,
+        value TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        UNIQUE(question_id, device_id)
+      )`);
+      return db;
+    }
+
+    it('refuses to start with a clear message instead of failing later', async () => {
+      const url = tempDbUrl();
+      await makeOldShapedDb(url);
+      await expect(initSchema(createDb(url))).rejects.toThrow(OLD_MESSAGE);
+    });
+
+    it('does not remember the refusal: after the old tables are dropped the next call builds the new schema', async () => {
+      const url = tempDbUrl();
+      const db = await makeOldShapedDb(url);
+      await expect(initSchema(createDb(url))).rejects.toThrow(OLD_MESSAGE);
+      await db.execute('DROP TABLE votes');
+      await db.execute('DROP TABLE questions');
+      await db.execute('DROP TABLE storms');
+      await db.execute('DROP TABLE IF EXISTS clouds');
+      await expect(initSchema(createDb(url))).resolves.toBeUndefined();
+      const tables = await db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name");
+      expect(tables.rows.map((r) => r.name)).toEqual(['clouds', 'rate_limits', 'storms', 'votes']);
+    });
+
+    it('refuses an old votes table even when storms already has the new column', async () => {
+      const url = tempDbUrl();
+      const db = createDb(url);
+      await db.execute('CREATE TABLE votes (id INTEGER PRIMARY KEY AUTOINCREMENT, question_id INTEGER NOT NULL, device_id TEXT NOT NULL, value TEXT NOT NULL, created_at INTEGER NOT NULL)');
+      await expect(initSchema(createDb(url))).rejects.toThrow(OLD_MESSAGE);
+    });
+
+    it('passes on a fresh database, twice', async () => {
+      const url = tempDbUrl();
+      await expect(initSchema(createDb(url))).resolves.toBeUndefined();
+      await expect(initSchema(createDb(url))).resolves.toBeUndefined();
+    });
   });
 });

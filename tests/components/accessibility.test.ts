@@ -4,8 +4,8 @@ import { flushPromises, mount } from '@vue/test-utils';
 import { createMemoryHistory, createRouter } from 'vue-router';
 import { createAppRouter, routes } from '@/router';
 import ShareModal from '@/components/ShareModal.vue';
-import QuestionResults from '@/components/QuestionResults.vue';
-import type { Question } from '@/shared/types';
+import CloudResults from '@/components/CloudResults.vue';
+import type { Cloud } from '@/shared/types';
 
 describe('share dialog focus', () => {
   const mountModal = () => mount(ShareModal, { props: { url: 'https://example.test/vote/ABC123' }, attachTo: document.body });
@@ -43,10 +43,10 @@ describe('share dialog focus', () => {
 
 describe('donut chart label', () => {
   it('describes the data, not just the chart type', () => {
-    const question: Question = {
-      id: 1, type: 'choice', prompt: 'Pets?', options: ['Cat', 'Dog'], scaleMin: null, scaleMax: null, multi: false, display: 'donut', resultsHidden: false, correct: null,
+    const cloud: Cloud = {
+      id: 1, kind: 'choice', body: 'Pets?', options: ['Cat', 'Dog'], scaleMin: null, scaleMax: null, multi: false, display: 'donut', resultsHidden: false, correct: null,
     };
-    const wrapper = mount(QuestionResults, { props: { question, tally: { counts: [1, 3], totalVotes: 4 } } });
+    const wrapper = mount(CloudResults, { props: { cloud, tally: { counts: [1, 3], totalVotes: 4 } } });
     expect(wrapper.find('[role="img"]').attributes('aria-label')).toBe('Donut chart of responses. Cat: 1 (25%), Dog: 3 (75%)');
   });
 });

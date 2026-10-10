@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref } from 'vue';
-import QuestionResults from './QuestionResults.vue';
-import type { ClosedQuestion } from '@/shared/types';
+import CloudResults from './CloudResults.vue';
+import MarkdownContent from './MarkdownContent.vue';
+import type { ClosedCloud } from '@/shared/types';
 
-const props = defineProps<{ slides: ClosedQuestion[]; large?: boolean; showNav?: boolean }>();
+const props = withDefaults(defineProps<{ slides: ClosedCloud[]; large?: boolean; showNav?: boolean }>(), { showNav: true });
 
 const track = ref<HTMLElement | null>(null);
 const slide = ref(0);
@@ -32,20 +33,20 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey));
 
 <template>
   <section class="carousel" :class="{ large }" aria-roledescription="carousel" aria-label="Results">
-    <div v-if="slides.length === 0" class="card state"><h2>No questions to show</h2></div>
+    <div v-if="slides.length === 0" class="card state"><h2>No clouds to show</h2></div>
     <div v-else>
       <div ref="track" class="carousel-track" @scroll.passive="onScroll">
         <article v-for="(q, qi) in slides" :key="q.id" class="carousel-slide">
           <div class="card slide-card">
-            <div class="slide-eyebrow">Question {{ qi + 1 }}</div>
-            <h2 class="slide-title">{{ q.prompt }}</h2>
-            <QuestionResults :question="q" :tally="q.tally" :large="large" />
+            <div class="slide-eyebrow">Cloud {{ qi + 1 }}</div>
+            <div class="slide-title"><MarkdownContent :source="q.body" :large="large" /></div>
+            <CloudResults :cloud="q" :tally="q.tally" :large="large" />
           </div>
         </article>
       </div>
       <div v-if="showNav !== false" class="carousel-nav">
-        <button class="btn sm" :disabled="slide === 0" aria-label="Previous question" @click="goTo(slide - 1)">&lsaquo; Prev</button>
-        <button class="btn sm" :disabled="slide === slides.length - 1" aria-label="Next question" @click="goTo(slide + 1)">Next &rsaquo;</button>
+        <button class="btn sm" :disabled="slide === 0" aria-label="Previous cloud" @click="goTo(slide - 1)">&lsaquo; Prev</button>
+        <button class="btn sm" :disabled="slide === slides.length - 1" aria-label="Next cloud" @click="goTo(slide + 1)">Next &rsaquo;</button>
       </div>
     </div>
   </section>

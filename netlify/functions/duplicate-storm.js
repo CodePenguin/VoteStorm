@@ -5,7 +5,7 @@ import { verifyAdmin } from '../../lib/adminAuth.js';
 import { rateLimitByIp } from '../../lib/rateLimit.js';
 import { json } from '../../lib/http.js';
 
-// Copies a storm's questions and look into a brand new storm, with no votes and no lock or timer. The copy belongs to
+// Copies a storm's clouds and look into a brand new storm, with no votes and no lock or timer. The copy belongs to
 // whoever asks (their license, their limits), so it counts toward their active-storm limit like any new storm.
 export async function handler(event) {
   if (event.httpMethod !== 'POST') return json(405, { error: 'Method not allowed' });
@@ -38,11 +38,11 @@ export async function handler(event) {
   if (auth.response) return auth.response;
   const source = auth.storm;
 
-  const questions = (await db.execute({ sql: 'SELECT * FROM questions WHERE storm_code = ? ORDER BY order_index ASC', args: [source.storm_code] })).rows;
-  if (license.maxQuestionsPerStorm && questions.length > license.maxQuestionsPerStorm) {
+  const clouds = (await db.execute({ sql: 'SELECT * FROM clouds WHERE storm_code = ? ORDER BY order_index ASC', args: [source.storm_code] })).rows;
+  if (license.maxQuestionsPerStorm && clouds.length > license.maxQuestionsPerStorm) {
     return json(403, {
-      error: `This Storm has ${questions.length} questions, but your license allows ${license.maxQuestionsPerStorm} per Storm.`,
-      code: 'question_limit',
+      error: `This Storm has ${clouds.length} clouds, but your license allows ${license.maxQuestionsPerStorm} per Storm.`,
+      code: 'cloud_limit',
     });
   }
 
@@ -58,13 +58,13 @@ export async function handler(event) {
   if (created.inUse) return json(409, { error: 'That key is already in use' });
 
   try {
-    if (questions.length > 0) {
+    if (clouds.length > 0) {
       const now = Date.now();
       await db.batch(
-        questions.map((q) => ({
-          sql: `INSERT INTO questions (storm_code, order_index, type, prompt, options, scale_min, scale_max, multi, results_hidden, answer_shown, correct, display, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          args: [created.stormCode, q.order_index, q.type, q.prompt, q.options, q.scale_min, q.scale_max, q.multi, q.results_hidden, q.answer_shown, q.correct, q.display, now],
+        clouds.map((q) => ({
+          sql: `INSERT INTO clouds (storm_code, order_index, kind, body, options, scale_min, scale_max, multi, results_hidden, answer_shown, correct, display, max_words, hidden_words, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          args: [created.stormCode, q.order_index, q.kind, q.body, q.options, q.scale_min, q.scale_max, q.multi, q.results_hidden, q.answer_shown, q.correct, q.display, q.max_words, q.hidden_words, now],
         })),
         'write',
       );

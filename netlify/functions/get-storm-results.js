@@ -1,6 +1,6 @@
 import { createDb, initSchema, getStormByCode } from '../../lib/db.js';
 import { computeTally } from '../../lib/tally.js';
-import { shapeQuestion } from '../../lib/question.js';
+import { shapeCloud } from '../../lib/cloud.js';
 import { json } from '../../lib/http.js';
 
 export async function handler(event) {
@@ -22,26 +22,26 @@ export async function handler(event) {
     return json(403, { error: 'Results are available once the Storm is closed' });
   }
 
-  const questionsResult = await db.execute({
-    sql: 'SELECT * FROM questions WHERE storm_code = ? ORDER BY order_index ASC',
+  const cloudsResult = await db.execute({
+    sql: 'SELECT * FROM clouds WHERE storm_code = ? ORDER BY order_index ASC',
     args: [storm.storm_code],
   });
   const votesResult = await db.execute({
-    sql: `SELECT v.* FROM votes v JOIN questions q ON q.id = v.question_id WHERE q.storm_code = ?`,
+    sql: `SELECT v.* FROM votes v JOIN clouds q ON q.id = v.cloud_id WHERE q.storm_code = ?`,
     args: [storm.storm_code],
   });
 
-  const votesByQuestion = new Map();
+  const votesByCloud = new Map();
   for (const vote of votesResult.rows) {
-    const list = votesByQuestion.get(Number(vote.question_id)) || [];
+    const list = votesByCloud.get(Number(vote.cloud_id)) || [];
     list.push(vote);
-    votesByQuestion.set(Number(vote.question_id), list);
+    votesByCloud.set(Number(vote.cloud_id), list);
   }
 
-  const questions = questionsResult.rows.map((q) => ({
-    ...shapeQuestion(q, { reveal: true }),
-    tally: computeTally(q, votesByQuestion.get(Number(q.id)) || []),
+  const clouds = cloudsResult.rows.map((q) => ({
+    ...shapeCloud(q, { reveal: true }),
+    tally: computeTally(q, votesByCloud.get(Number(q.id)) || []),
   }));
 
-  return json(200, { questions });
+  return json(200, { clouds });
 }

@@ -7,16 +7,16 @@ describe('fragment links', () => {
     expect(readFragment('k=abc').get('k')).toBe('abc');
     expect(readFragment('').get('k')).toBeNull();
     expect(fragmentFor({ k: 'abc', t: 'storm' })).toBe('#k=abc&t=storm');
-    expect(fragmentFor({ k: 'abc', t: null, q: undefined })).toBe('#k=abc');
+    expect(fragmentFor({ k: 'abc', t: null, c: undefined })).toBe('#k=abc');
     expect(fragmentFor({})).toBe('');
-    expect(fragmentFor({ k: 'abc', q: 7 })).toBe('#k=abc&q=7');
+    expect(fragmentFor({ k: 'abc', c: 7 })).toBe('#k=abc&c=7');
   });
 
   it('builds presenter and results links with the secret only after the #', () => {
     expect(presenterLocation('ABCDEFGH', 'S', 'storm')).toEqual({ path: '/presenter/ABCDEFGH', hash: '#k=S&t=storm' });
     expect(presenterLocation('ABCDEFGH', 'S')).toEqual({ path: '/presenter/ABCDEFGH', hash: '#k=S' });
     expect(presenterLocation('ABCDEFGH')).toEqual({ path: '/presenter/ABCDEFGH', hash: '' });
-    expect(resultsUrl('https://x', 'RK', 7)).toBe('https://x/results#k=RK&q=7');
+    expect(resultsUrl('https://x', 'RK', 7)).toBe('https://x/results#k=RK&c=7');
     expect(resultsUrl('https://x.test', 'RK')).toBe('https://x.test/results#k=RK');
   });
 

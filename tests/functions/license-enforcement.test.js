@@ -12,7 +12,7 @@ import { createDb, initSchema } from '../../lib/db.js';
 import { makeAdmin } from '../helpers/admin.js';
 import { handler as createStorm } from '../../netlify/functions/create-storm.js';
 import { handler as adminStorm } from '../../netlify/functions/admin-storm.js';
-import { handler as adminQuestions } from '../../netlify/functions/admin-questions.js';
+import { handler as adminClouds } from '../../netlify/functions/admin-clouds.js';
 import { handler as vote } from '../../netlify/functions/vote.js';
 import { handler as licenseStatus } from '../../netlify/functions/license-status.js';
 import { bearer, makeIssuer, useIssuer } from '../helpers/issuer.js';
@@ -48,17 +48,17 @@ describe('license enforcement', () => {
     admin.stormCode = body.stormCode ?? null;
     return { res, body, admin };
   };
-  const addQuestion = (admin, jwt, prompt = 'Q') => admin.call(adminQuestions, 'admin-questions', {
+  const addCloud = (admin, jwt, body = 'Q') => admin.call(adminClouds, 'admin-clouds', {
     httpMethod: 'POST', headers: jwt ? bearer(jwt) : {},
-    body: JSON.stringify({ type: 'choice', prompt, options: ['A', 'B'] }),
+    body: JSON.stringify({ kind: 'choice', body, options: ['A', 'B'] }),
   });
   const stormRow = async (stormCode) => (await createDb().execute({ sql: 'SELECT * FROM storms WHERE storm_code = ?', args: [stormCode] })).rows[0];
-  const activate = (admin, questionId) => admin.call(adminStorm, 'admin-storm', {
-    httpMethod: 'PATCH', body: JSON.stringify({ status: 'active', currentQuestionId: questionId }),
+  const activate = (admin, cloudId) => admin.call(adminStorm, 'admin-storm', {
+    httpMethod: 'PATCH', body: JSON.stringify({ status: 'active', currentCloudId: cloudId }),
   });
   const getStorm = (admin, headers = {}) => admin.call(adminStorm, 'admin-storm', { httpMethod: 'GET', headers });
-  const castVote = (stormCode, questionId, deviceId, value = 0) => vote({
-    httpMethod: 'POST', body: JSON.stringify({ stormCode, questionId, deviceId, value }),
+  const castVote = (stormCode, cloudId, deviceId, value = 0) => vote({
+    httpMethod: 'POST', body: JSON.stringify({ stormCode, cloudId, deviceId, value }),
   });
 
   describe('creating storms', () => {
@@ -198,42 +198,42 @@ describe('license enforcement', () => {
     });
   });
 
-  describe('questions per storm', () => {
-    it('stops adding questions at the license limit but still allows edits and deletes', async () => {
+  describe('clouds per storm', () => {
+    it('stops adding clouds at the license limit but still allows edits and deletes', async () => {
       const jwt = await issuer.sign({ maxQuestionsPerStorm: 2 });
       const { body, admin } = await create(jwt);
-      const q1 = JSON.parse((await addQuestion(admin, jwt, 'one')).body).id;
-      await addQuestion(admin, jwt, 'two');
-      const third = await addQuestion(admin, jwt, 'three');
+      const q1 = JSON.parse((await addCloud(admin, jwt, 'one')).body).id;
+      await addCloud(admin, jwt, 'two');
+      const third = await addCloud(admin, jwt, 'three');
       expect(third.statusCode).toBe(403);
-      expect(JSON.parse(third.body)).toMatchObject({ code: 'question_limit' });
-      expect(JSON.parse(third.body).error).toContain('2 questions');
+      expect(JSON.parse(third.body)).toMatchObject({ code: 'cloud_limit' });
+      expect(JSON.parse(third.body).error).toContain('limit of 2 clouds');
 
-      const edit = await admin.call(adminQuestions, 'admin-questions', {
-        httpMethod: 'PATCH', body: JSON.stringify({ questionId: q1, edit: { type: 'choice', prompt: 'renamed', options: ['A', 'B'] } }),
+      const edit = await admin.call(adminClouds, 'admin-clouds', {
+        httpMethod: 'PATCH', body: JSON.stringify({ cloudId: q1, edit: { kind: 'choice', body: 'renamed', options: ['A', 'B'] } }),
       });
       expect(edit.statusCode).toBe(200);
-      await admin.call(adminQuestions, 'admin-questions', { httpMethod: 'DELETE', body: JSON.stringify({ questionId: q1 }) });
-      expect((await addQuestion(admin, jwt, 'again')).statusCode).toBe(200);
+      await admin.call(adminClouds, 'admin-clouds', { httpMethod: 'DELETE', body: JSON.stringify({ cloudId: q1 }) });
+      expect((await addCloud(admin, jwt, 'again')).statusCode).toBe(200);
     });
 
     it('keeps applying the limit when the presenter page does not resend the license (it is stored on the storm)', async () => {
       const jwt = await issuer.sign({ maxQuestionsPerStorm: 1 });
       const { body, admin } = await create(jwt);
-      expect((await addQuestion(admin, jwt)).statusCode).toBe(200);
-      expect((await addQuestion(admin, null)).statusCode).toBe(403);
+      expect((await addCloud(admin, jwt)).statusCode).toBe(200);
+      expect((await addCloud(admin, null)).statusCode).toBe(403);
     });
 
     it('takes the anonymous limit from configuration', async () => {
       process.env.ANONYMOUS_LICENSE_JWT = await issuer.sign({ maxQuestionsPerStorm: 1 }, { sub: 'anything' });
       const { body, admin } = await create();
-      expect((await addQuestion(admin, null)).statusCode).toBe(200);
-      expect((await addQuestion(admin, null)).statusCode).toBe(403);
+      expect((await addCloud(admin, null)).statusCode).toBe(200);
+      expect((await addCloud(admin, null)).statusCode).toBe(403);
     });
 
     it('is unlimited when the license sets no limit', async () => {
       const { body, admin } = await create(await issuer.sign({ name: 'Open' }));
-      for (let i = 0; i < 6; i++) expect((await addQuestion(admin, null, `q${i}`)).statusCode).toBe(200);
+      for (let i = 0; i < 6; i++) expect((await addCloud(admin, null, `q${i}`)).statusCode).toBe(200);
     });
   });
 
@@ -241,8 +241,8 @@ describe('license enforcement', () => {
     async function liveStorm(limits) {
       const jwt = await issuer.sign(limits);
       const { body, admin } = await create(jwt);
-      const q1 = JSON.parse((await addQuestion(admin, null, 'one')).body).id;
-      const q2 = JSON.parse((await addQuestion(admin, null, 'two')).body).id;
+      const q1 = JSON.parse((await addCloud(admin, null, 'one')).body).id;
+      const q2 = JSON.parse((await addCloud(admin, null, 'two')).body).id;
       await activate(admin, q1);
       return { ...body, admin, q1, q2 };
     }
@@ -256,7 +256,7 @@ describe('license enforcement', () => {
       expect(JSON.parse(full.body)).toMatchObject({ code: 'audience_full' });
     });
 
-    it('lets devices already in the audience keep voting, changing answers, and answering later questions', async () => {
+    it('lets devices already in the audience keep voting, changing answers, and answering later clouds', async () => {
       const storm = await liveStorm({ maxAudiencePerStorm: 2 });
       await castVote(storm.stormCode, storm.q1, 'd1');
       await castVote(storm.stormCode, storm.q1, 'd2');
@@ -290,7 +290,7 @@ describe('license enforcement', () => {
 
     it('treats audience votes as activity so a busy storm does not expire', async () => {
       const { body, admin } = await create();
-      const q = JSON.parse((await addQuestion(admin, null)).body).id;
+      const q = JSON.parse((await addCloud(admin, null)).body).id;
       await activate(admin, q);
       await createDb().execute({ sql: 'UPDATE storms SET last_activity_at = ? WHERE storm_code = ?', args: [Date.now() - 23 * HOUR, body.stormCode] });
       await castVote(body.stormCode, q, 'd1');

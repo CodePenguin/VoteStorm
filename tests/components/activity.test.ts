@@ -14,19 +14,35 @@ describe('describeActivity', () => {
   it('says what is happening for each kind of user action', () => {
     expect(describeActivity('vote', 'POST', '{}')).toEqual({ working: 'Submitting your vote…', done: 'Vote submitted' });
     expect(describeActivity('create-storm', 'POST')?.done).toBe('Storm created');
-    expect(describeActivity('admin-questions', 'POST', '{}')?.done).toBe('Question added');
-    expect(describeActivity('admin-questions', 'DELETE', '{}')?.done).toBe('Question deleted');
-    expect(patch('admin-questions', { edit: {} })?.done).toBe('Question saved');
-    expect(patch('admin-questions', { action: 'reset' })?.done).toBe('Votes reset');
-    expect(patch('admin-questions', { orderIndex: 2 })?.done).toBe('Order saved');
+    expect(describeActivity('admin-clouds', 'POST', '{}')?.done).toBe('Cloud added');
+    expect(describeActivity('admin-clouds', 'DELETE', '{}')?.done).toBe('Cloud deleted');
+    expect(patch('admin-clouds', { edit: {} })?.done).toBe('Cloud saved');
+    expect(patch('admin-clouds', { action: 'reset' })?.done).toBe('Votes reset');
+    expect(patch('admin-clouds', { orderIndex: 2 })?.done).toBe('Order saved');
+    expect(patch('admin-clouds', { cloudId: 1, hideWord: 'rude' })).toEqual({ working: 'Removing word…', done: 'Word removed' });
+    expect(patch('admin-clouds', { cloudId: 1, showWord: 'rude' })).toEqual({ working: 'Restoring word…', done: 'Word restored' });
     expect(patch('admin-storm', { showConnect: true })?.done).toBe('Join screen updated');
     expect(patch('admin-storm', { resultsHidden: true })?.done).toBe('Results updated');
     expect(patch('admin-storm', { answerShown: true })?.done).toBe('Results updated');
-    expect(patch('admin-storm', { status: 'active', currentQuestionId: 4 })?.done).toBe('Question changed');
+    expect(patch('admin-storm', { status: 'active', currentCloudId: 4 })?.done).toBe('Cloud changed');
     expect(patch('admin-storm', { status: 'closed' })?.done).toBe('Storm ended');
     expect(patch('admin-storm', { status: 'lobby' })?.done).toBe('Storm updated');
     expect(patch('admin-storm', { action: 'reset' })?.done).toBe('Votes reset');
     expect(describeActivity('admin-storm', 'DELETE', '{}')?.done).toBe('Storm deleted');
+  });
+
+  it('says a content timer is being cleared, not that voting is unlocking', () => {
+    expect(patch('admin-storm', { cloudId: 3, votingLocked: false, clearTimer: true })).toEqual({ working: 'Clearing timer…', done: 'Timer cleared' });
+    expect(patch('admin-storm', { cloudId: 3, votingLocked: false })).toEqual({ working: 'Unlocking voting…', done: 'Voting open' });
+    expect(patch('admin-storm', { cloudId: 3, votingLocked: true })?.done).toBe('Voting locked');
+  });
+
+  it('talks about words, not votes, for a word cloud', () => {
+    expect(describeActivity('vote', 'POST', JSON.stringify({ cloudId: 2, value: ['team', 'work'] }))).toEqual({ working: 'Sending your words…', done: 'Words sent' });
+    expect(describeActivity('vote', 'POST', JSON.stringify({ cloudId: 2, value: [0, 2] }))?.done).toBe('Vote submitted');
+    expect(describeActivity('vote', 'POST', JSON.stringify({ cloudId: 2, value: 1 }))?.done).toBe('Vote submitted');
+    expect(patch('admin-storm', { cloudId: 4, votingLocked: true, words: true })).toEqual({ working: 'Locking submissions…', done: 'Submissions locked' });
+    expect(patch('admin-storm', { cloudId: 4, votingLocked: false, words: true })).toEqual({ working: 'Unlocking submissions…', done: 'Submissions open' });
   });
 
   it('stays quiet for reads and for things the page does by itself', () => {
@@ -155,9 +171,9 @@ describe('api() reports user-triggered requests', () => {
   });
 
   it('shows the server message when a save fails, and still throws to the caller', async () => {
-    fetchMock.mockResolvedValue(new Response(JSON.stringify({ error: 'This storm has reached its limit of 2 questions.' }), { status: 403 }));
-    await expect(api('admin-questions', { method: 'POST', body: '{}' })).rejects.toThrow('limit of 2 questions');
-    expect(activity.value).toEqual({ kind: 'error', message: 'This storm has reached its limit of 2 questions.' });
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({ error: 'This storm has reached its limit of 2 clouds.' }), { status: 403 }));
+    await expect(api('admin-clouds', { method: 'POST', body: '{}' })).rejects.toThrow('limit of 2 clouds');
+    expect(activity.value).toEqual({ kind: 'error', message: 'This storm has reached its limit of 2 clouds.' });
   });
 
   it('shows a network failure too', async () => {

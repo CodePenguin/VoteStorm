@@ -10,7 +10,7 @@ export function readFragment(hash: string): URLSearchParams {
   return new URLSearchParams(hash.startsWith('#') ? hash.slice(1) : hash);
 }
 
-/** `#k=...&q=...` from the values that are set (null and undefined are left out). Empty if none are. */
+/** `#k=...&c=...` from the values that are set (null and undefined are left out). Empty if none are. */
 export function fragmentFor(values: Values): string {
   const params = new URLSearchParams();
   for (const [name, value] of Object.entries(values)) {
@@ -25,6 +25,6 @@ export const presenterLocation = (stormCode: string, secret?: string | null, tab
   hash: fragmentFor({ k: secret, t: tab }),
 });
 
-/** A link anyone can open to watch a Storm's results, optionally pinned to one question. */
-export const resultsUrl = (origin: string, resultsKey: string, questionId?: number | null) =>
-  `${origin}/results${fragmentFor({ k: resultsKey, q: questionId })}`;
+/** A link anyone can open to watch a Storm's results, optionally pinned to one cloud. */
+export const resultsUrl = (origin: string, resultsKey: string, cloudId?: number | null) =>
+  `${origin}/results${fragmentFor({ k: resultsKey, c: cloudId })}`;

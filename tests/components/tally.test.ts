@@ -1,7 +1,23 @@
 import { describe, it, expect } from 'vitest';
 import {
   countFor, donutSegments, emptyTally, formatAverage, hasCounts, isHiddenTally, isLeader, normalizeTally, pctFor, ratingValues, responsesLabel,
+  isWordsTally, wordsOf,
 } from '@/lib/tally';
+
+describe('words tally helpers', () => {
+  it('tells a words tally from a counts tally', () => {
+    expect(isWordsTally({ words: [], totalVotes: 0 })).toBe(true);
+    expect(isWordsTally({ counts: [1], totalVotes: 1 })).toBe(false);
+    expect(isWordsTally(null)).toBe(false);
+  });
+  it('returns the words, or an empty list for anything else', () => {
+    const words = [{ word: 'hi', count: 2 }];
+    expect(wordsOf({ words, totalVotes: 2 })).toEqual(words);
+    expect(wordsOf(null)).toEqual([]);
+    expect(wordsOf({ counts: [1], totalVotes: 1 })).toEqual([]);
+    expect(wordsOf({ hidden: true, totalVotes: 1 })).toEqual([]);
+  });
+});
 
 describe('tally helpers', () => {
   it('counts and percentages for a choice tally', () => {

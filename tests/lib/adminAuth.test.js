@@ -172,7 +172,7 @@ describe('verifyAdmin', () => {
   });
 
   it('rejects a different function name', async () => {
-    await denies(await admin.sign('admin-storm', get), 'admin-questions');
+    await denies(await admin.sign('admin-storm', get), 'admin-clouds');
   });
 
   it('rejects a different Storm code', async () => {

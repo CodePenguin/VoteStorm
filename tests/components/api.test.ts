@@ -18,7 +18,7 @@ const sentHeaders = () => fetchMock.mock.calls[0][1].headers as Record<string, s
 describe('api()', () => {
   it('sends the stored license on presenter requests only', async () => {
     setStoredLicense('my.jwt.token');
-    for (const path of ['create-storm', 'admin-storm', 'admin-questions', 'license-status']) {
+    for (const path of ['create-storm', 'admin-storm', 'admin-clouds', 'license-status']) {
       fetchMock.mockClear();
       await api(path);
       expect(sentHeaders().authorization).toBe('Bearer my.jwt.token');

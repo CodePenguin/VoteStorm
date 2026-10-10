@@ -1,22 +1,27 @@
-import type { AdminQuestion, Question, QuestionForm, QuestionPayload, StormStatus } from '@/shared/types';
+import type { AdminCloud, Cloud, CloudForm, CloudKind, CloudPayload, StormStatus } from '@/shared/types';
+import { plainLine } from '@/lib/markdown';
 
-export function blankForm(): QuestionForm {
-  return { type: 'choice', prompt: '', optionsText: '', correctText: '', display: 'bars', resultsHidden: false, multi: false, scaleMin: 1, scaleMax: 5 };
+export function blankForm(): CloudForm {
+  return { kind: 'choice', body: '', optionsText: '', correctText: '', display: 'bars', resultsHidden: false, multi: false, scaleMin: 1, scaleMax: 5, maxWords: 3 };
 }
 
-export function parseOptions(q: AdminQuestion): string[] {
+export function parseHiddenWords(q: AdminCloud): string[] {
+  return q.hidden_words ? (JSON.parse(q.hidden_words) as string[]) : [];
+}
+
+export function parseOptions(q: AdminCloud): string[] {
   return q.options ? (JSON.parse(q.options) as string[]) : [];
 }
 
-export function parseCorrect(q: AdminQuestion): number[] {
+export function parseCorrect(q: AdminCloud): number[] {
   return q.correct ? (JSON.parse(q.correct) as number[]) : [];
 }
 
-export function formFromQuestion(q: AdminQuestion): QuestionForm {
+export function formFromCloud(q: AdminCloud): CloudForm {
   const options = parseOptions(q);
   return {
-    type: q.type,
-    prompt: q.prompt,
+    kind: q.kind,
+    body: q.body,
     optionsText: options.join(', '),
     correctText: parseCorrect(q).map((i) => options[i]).filter(Boolean).join(', '),
     display: q.display === 'donut' ? 'donut' : 'bars',
@@ -24,13 +29,17 @@ export function formFromQuestion(q: AdminQuestion): QuestionForm {
     multi: !!q.multi,
     scaleMin: q.scale_min ?? 1,
     scaleMax: q.scale_max ?? 5,
+    maxWords: q.max_words ?? 3,
   };
 }
 
 /** Turns the form into an API payload; correct answers are typed as option text and mapped to indexes. */
-export function buildQuestionPayload(f: QuestionForm): QuestionPayload {
-  const payload: QuestionPayload = { type: f.type, prompt: f.prompt, resultsHidden: !!f.resultsHidden };
-  if (f.type === 'choice') {
+export function buildCloudPayload(f: CloudForm): CloudPayload {
+  if (f.kind === 'content') return { kind: 'content', body: f.body };
+  // An emptied number field gives '', which the server would refuse: fall back to the default.
+  if (f.kind === 'words') return { kind: 'words', body: f.body, maxWords: Number(f.maxWords) || 3, resultsHidden: !!f.resultsHidden };
+  const payload: CloudPayload = { kind: f.kind, body: f.body, resultsHidden: !!f.resultsHidden };
+  if (f.kind === 'choice') {
     const options = f.optionsText.split(',').map((x) => x.trim()).filter(Boolean);
     payload.options = options;
     payload.multi = !!f.multi;
@@ -48,11 +57,11 @@ export function buildQuestionPayload(f: QuestionForm): QuestionPayload {
 }
 
 /** The presenter always sees the counts and correct answer, even while they are hidden from the audience. */
-export function toPrivateQuestion(q: AdminQuestion): Question {
+export function toPrivateCloud(q: AdminCloud): Cloud {
   return {
     id: q.id,
-    type: q.type,
-    prompt: q.prompt,
+    kind: q.kind,
+    body: q.body,
     options: q.options ? (JSON.parse(q.options) as string[]) : null,
     scaleMin: q.scale_min,
     scaleMax: q.scale_max,
@@ -60,7 +69,27 @@ export function toPrivateQuestion(q: AdminQuestion): Question {
     display: q.display === 'donut' ? 'donut' : 'bars',
     resultsHidden: false,
     correct: q.correct ? (JSON.parse(q.correct) as number[]) : null,
+    maxWords: q.max_words,
   };
+}
+
+export function phaseText(kind: CloudKind) {
+  if (kind === 'content') return { open: 'No timer', closed: "Time's up", lock: '', unlock: 'Clear timer' };
+  if (kind === 'words') return { open: 'Submissions open', closed: 'Submissions closed', lock: 'Lock submissions', unlock: 'Unlock submissions' };
+  return { open: 'Voting open', closed: 'Voting closed', lock: 'Lock voting', unlock: 'Unlock voting' };
+}
+
+export function kindLabel(c: AdminCloud): string {
+  if (c.kind === 'content') return 'Content';
+  if (c.kind === 'words') return `Words (up to ${c.max_words ?? 3})`;
+  if (c.kind === 'choice') return c.multi ? 'Multi-select' : 'Choice';
+  return `Rating ${c.scale_min}–${c.scale_max}`;
+}
+
+/** A plain, one-line version of a markdown body for compact lists. */
+export function firstLine(body: string, max = 80): string {
+  const line = plainLine(body);
+  return line.length > max ? `${line.slice(0, max - 1)}…` : line;
 }
 
 export function statusLabel(status: StormStatus): string {

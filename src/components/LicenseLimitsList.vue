@@ -14,7 +14,7 @@ function expiryText(hours: number): string {
 
 const rows = computed(() => [
   { label: 'Storms expire after', value: `${expiryText(props.limits.stormInactivityHours)} of inactivity` },
-  { label: 'Questions per Storm', value: props.limits.maxQuestionsPerStorm ? String(props.limits.maxQuestionsPerStorm) : 'Unlimited' },
+  { label: 'Clouds per Storm', value: props.limits.maxQuestionsPerStorm ? String(props.limits.maxQuestionsPerStorm) : 'Unlimited' },
   { label: 'Audience per Storm', value: props.limits.maxAudiencePerStorm ? String(props.limits.maxAudiencePerStorm) : 'Unlimited' },
   { label: 'Active Storms', value: props.limits.maxActiveStorms ? String(props.limits.maxActiveStorms) : 'Unlimited' },
 ]);

@@ -12,7 +12,7 @@ import { publishEvent } from '../../lib/realtime.js';
 import { createDb, initSchema } from '../../lib/db.js';
 import { seedStorm } from '../helpers/admin.js';
 import { handler as adminStorm } from '../../netlify/functions/admin-storm.js';
-import { handler as questions } from '../../netlify/functions/admin-questions.js';
+import { handler as clouds } from '../../netlify/functions/admin-clouds.js';
 import { handler as resolveKey } from '../../netlify/functions/resolve-results-key.js';
 import { handler as activate } from '../../netlify/functions/results-activate.js';
 
@@ -31,9 +31,9 @@ describe('results key', () => {
     admin = await seedStorm(db);
     stormCode = admin.stormCode;
     resultsKey = admin.resultsKey;
-    const add = async (prompt) => JSON.parse((await admin.call(questions, 'admin-questions', {
+    const add = async (body) => JSON.parse((await admin.call(clouds, 'admin-clouds', {
       httpMethod: 'POST',
-      body: JSON.stringify({ type: 'choice', prompt, options: ['A', 'B'] }),
+      body: JSON.stringify({ kind: 'choice', body, options: ['A', 'B'] }),
     })).body).id;
     q1 = await add('One');
     q2 = await add('Two');
@@ -58,49 +58,49 @@ describe('results key', () => {
     expect(JSON.parse((await resolve(resultsKey)).body)).toEqual({ stormCode, resultsBackground: '#102030' });
   });
 
-  it('makes a question live from the results key and publishes the state', async () => {
-    const res = await go({ resultsKey, questionId: q2 });
+  it('makes a cloud live from the results key and publishes the state', async () => {
+    const res = await go({ resultsKey, cloudId: q2 });
     expect(JSON.parse(res.body)).toEqual({ ok: true, changed: true });
     expect(publishEvent).toHaveBeenCalledWith(stormCode, 'state', expect.objectContaining({
       status: 'active',
-      currentQuestion: expect.objectContaining({ id: q2, prompt: 'Two' }),
+      currentCloud: expect.objectContaining({ id: q2, body: 'Two' }),
     }));
     const body = JSON.parse((await admin.call(adminStorm, 'admin-storm', { httpMethod: 'GET' })).body);
-    expect(body.storm.current_question_id).toBe(q2);
+    expect(body.storm.current_cloud_id).toBe(q2);
   });
 
-  it('brings a question live open, even if it was locked before', async () => {
+  it('brings a cloud live open, even if it was locked before', async () => {
     const db = createDb();
-    await db.execute({ sql: 'UPDATE questions SET closes_at = ? WHERE id = ?', args: [Date.now() - 1000, q2] });
-    await go({ resultsKey, questionId: q2 });
+    await db.execute({ sql: 'UPDATE clouds SET closes_at = ? WHERE id = ?', args: [Date.now() - 1000, q2] });
+    await go({ resultsKey, cloudId: q2 });
     expect(publishEvent).toHaveBeenCalledWith(stormCode, 'state', expect.objectContaining({
-      currentQuestion: expect.objectContaining({ id: q2, votingMsLeft: null }),
+      currentCloud: expect.objectContaining({ id: q2, votingMsLeft: null }),
     }));
-    expect((await db.execute({ sql: 'SELECT closes_at FROM questions WHERE id = ?', args: [q2] })).rows[0].closes_at).toBeNull();
+    expect((await db.execute({ sql: 'SELECT closes_at FROM clouds WHERE id = ?', args: [q2] })).rows[0].closes_at).toBeNull();
   });
 
-  it('does nothing (and publishes nothing) when the question is already live', async () => {
-    await go({ resultsKey, questionId: q1 });
+  it('does nothing (and publishes nothing) when the cloud is already live', async () => {
+    await go({ resultsKey, cloudId: q1 });
     vi.clearAllMocks();
-    expect(JSON.parse((await go({ resultsKey, questionId: q1 })).body).changed).toBe(false);
+    expect(JSON.parse((await go({ resultsKey, cloudId: q1 })).body).changed).toBe(false);
     expect(publishEvent).not.toHaveBeenCalled();
   });
 
   it('never reopens a closed storm', async () => {
     await admin.call(adminStorm, 'admin-storm', { httpMethod: 'PATCH', body: JSON.stringify({ status: 'closed' }) });
     vi.clearAllMocks();
-    const res = await go({ resultsKey, questionId: q2 });
+    const res = await go({ resultsKey, cloudId: q2 });
     expect(JSON.parse(res.body)).toMatchObject({ changed: false, closed: true });
     expect(publishEvent).not.toHaveBeenCalled();
     const body = JSON.parse((await admin.call(adminStorm, 'admin-storm', { httpMethod: 'GET' })).body);
     expect(body.storm.status).toBe('closed');
-    expect(body.storm.current_question_id).not.toBe(q2);
+    expect(body.storm.current_cloud_id).not.toBe(q2);
   });
 
-  it('refuses a storm code, a wrong key, or a question from another storm', async () => {
-    expect((await go({ resultsKey: stormCode, questionId: q1 })).statusCode).toBe(401);
-    expect((await go({ resultsKey: 'f'.repeat(24), questionId: q1 })).statusCode).toBe(401);
-    expect((await go({ resultsKey, questionId: 99999 })).statusCode).toBe(404);
+  it('refuses a storm code, a wrong key, or a cloud from another storm', async () => {
+    expect((await go({ resultsKey: stormCode, cloudId: q1 })).statusCode).toBe(401);
+    expect((await go({ resultsKey: 'f'.repeat(24), cloudId: q1 })).statusCode).toBe(401);
+    expect((await go({ resultsKey, cloudId: 99999 })).statusCode).toBe(404);
     expect(publishEvent).not.toHaveBeenCalled();
   });
 });

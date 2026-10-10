@@ -1,4 +1,7 @@
-import type { HiddenTally, Question, Tally, VisibleTally } from '@/shared/types';
+import type { ChoiceTally, RatingTally, HiddenTally, Cloud, Tally, VisibleTally, WordsTally } from '@/shared/types';
+
+/** A tally that has per-option counts (everything but a word cloud's). */
+export type CountedTally = ChoiceTally | RatingTally;
 
 export const DONUT_COLORS = ['#2563eb', '#f59e0b', '#10b981', '#ef4444', '#8b5cf6', '#06b6d4', '#ec4899', '#84cc16'];
 
@@ -15,26 +18,34 @@ export function isHiddenTally(t: Tally | null | undefined): t is HiddenTally {
   return !!t && 'hidden' in t && t.hidden === true;
 }
 
-export function hasCounts(t: Tally | null | undefined): t is VisibleTally {
+export function hasCounts(t: Tally | null | undefined): t is CountedTally {
   return !!t && 'counts' in t;
 }
 
-export function countFor(t: VisibleTally, key: number): number {
+export function isWordsTally(t: Tally | null | undefined): t is WordsTally {
+  return !!t && 'words' in t;
+}
+
+export function wordsOf(t: Tally | null | undefined): { word: string; count: number }[] {
+  return isWordsTally(t) ? t.words : [];
+}
+
+export function countFor(t: CountedTally, key: number): number {
   return (t.counts as Record<number, number>)[key] ?? 0;
 }
 
-export function pctFor(t: VisibleTally, key: number): number {
+export function pctFor(t: CountedTally, key: number): number {
   const total = t.totalVotes || 0;
   return total ? Math.round((countFor(t, key) / total) * 100) : 0;
 }
 
-export function isLeader(t: VisibleTally, key: number): boolean {
+export function isLeader(t: CountedTally, key: number): boolean {
   const count = countFor(t, key);
   if (!count) return false;
   return count === Math.max(...Object.values(t.counts as Record<number, number>).map((c) => c || 0));
 }
 
-export function ratingValues(q: Pick<Question, 'scaleMin' | 'scaleMax'>): number[] {
+export function ratingValues(q: Pick<Cloud, 'scaleMin' | 'scaleMax'>): number[] {
   if (q.scaleMin == null || q.scaleMax == null) return [];
   return Array.from({ length: q.scaleMax - q.scaleMin + 1 }, (_, k) => (q.scaleMin as number) + k);
 }

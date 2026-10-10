@@ -11,13 +11,13 @@ vi.mock('../../lib/realtime.js', () => ({
 import { publishEvent } from '../../lib/realtime.js';
 import { createDb, initSchema, getStormByCode } from '../../lib/db.js';
 import { seedStorm } from '../helpers/admin.js';
-import { handler as questionsHandler } from '../../netlify/functions/admin-questions.js';
+import { handler as cloudsHandler } from '../../netlify/functions/admin-clouds.js';
 import { handler } from '../../netlify/functions/admin-storm.js';
 
 describe('admin-storm function', () => {
-  let admin, stormCode, questionId;
+  let admin, stormCode, cloudId;
   const call = (event) => admin.call(handler, 'admin-storm', event);
-  const callQuestions = (event) => admin.call(questionsHandler, 'admin-questions', event);
+  const callClouds = (event) => admin.call(cloudsHandler, 'admin-clouds', event);
 
   beforeEach(async () => {
     const dir = mkdtempSync(path.join(tmpdir(), 'votestorm-test-'));
@@ -26,8 +26,8 @@ describe('admin-storm function', () => {
     await initSchema(db);
     admin = await seedStorm(db);
     stormCode = admin.stormCode;
-    const createRes = await callQuestions({ httpMethod: 'POST', body: JSON.stringify({ type: 'choice', prompt: 'Pick one', options: ['A', 'B'] }) });
-    questionId = JSON.parse(createRes.body).id;
+    const createRes = await callClouds({ httpMethod: 'POST', body: JSON.stringify({ kind: 'choice', body: 'Pick one', options: ['A', 'B'] }) });
+    cloudId = JSON.parse(createRes.body).id;
     vi.clearAllMocks();
   });
 
@@ -35,50 +35,50 @@ describe('admin-storm function', () => {
     delete process.env.TURSO_DATABASE_URL;
   });
 
-  it('returns storm detail with questions and tallies', async () => {
+  it('returns storm detail with clouds and tallies', async () => {
     const res = await call({ httpMethod: 'GET' });
     const body = JSON.parse(res.body);
     expect(body.storm.storm_code).toBe(stormCode);
-    expect(body.questions).toHaveLength(1);
-    expect(body.questions[0].tally.totalVotes).toBe(0);
+    expect(body.clouds).toHaveLength(1);
+    expect(body.clouds[0].tally.totalVotes).toBe(0);
   });
 
-  it('activates a question and publishes a state event', async () => {
-    const res = await call({ httpMethod: 'PATCH', body: JSON.stringify({ status: 'active', currentQuestionId: questionId }) });
+  it('activates a cloud and publishes a state event', async () => {
+    const res = await call({ httpMethod: 'PATCH', body: JSON.stringify({ status: 'active', currentCloudId: cloudId }) });
     expect(res.statusCode).toBe(200);
     expect(publishEvent).toHaveBeenCalledWith(stormCode, 'state', expect.objectContaining({ status: 'active' }));
 
     const publishedPayload = publishEvent.mock.calls[0][2];
-    // currentQuestion must be shaped like get-storm-state.js's output, not the
+    // currentCloud must be shaped like get-storm-state.js's output, not the
     // raw DB row: options parsed into an array (not a JSON string), and
     // camelCase scale fields (not snake_case scale_min/scale_max).
-    expect(Array.isArray(publishedPayload.currentQuestion.options)).toBe(true);
-    expect(publishedPayload.currentQuestion.options).toEqual(['A', 'B']);
-    expect(publishedPayload.currentQuestion).not.toHaveProperty('scale_min');
-    expect(publishedPayload.currentQuestion).not.toHaveProperty('scale_max');
+    expect(Array.isArray(publishedPayload.currentCloud.options)).toBe(true);
+    expect(publishedPayload.currentCloud.options).toEqual(['A', 'B']);
+    expect(publishedPayload.currentCloud).not.toHaveProperty('scale_min');
+    expect(publishedPayload.currentCloud).not.toHaveProperty('scale_max');
   });
 
-  it('publishes camelCase scaleMin/scaleMax for a rating question', async () => {
-    const createRes = await callQuestions({ httpMethod: 'POST', body: JSON.stringify({ type: 'rating', prompt: 'Rate it', scaleMin: 1, scaleMax: 10 }) });
-    const ratingQuestionId = JSON.parse(createRes.body).id;
+  it('publishes camelCase scaleMin/scaleMax for a rating cloud', async () => {
+    const createRes = await callClouds({ httpMethod: 'POST', body: JSON.stringify({ kind: 'rating', body: 'Rate it', scaleMin: 1, scaleMax: 10 }) });
+    const ratingCloudId = JSON.parse(createRes.body).id;
     vi.clearAllMocks();
 
-    const res = await call({ httpMethod: 'PATCH', body: JSON.stringify({ currentQuestionId: ratingQuestionId }) });
+    const res = await call({ httpMethod: 'PATCH', body: JSON.stringify({ currentCloudId: ratingCloudId }) });
     expect(res.statusCode).toBe(200);
 
     const publishedPayload = publishEvent.mock.calls[0][2];
-    expect(publishedPayload.currentQuestion.scaleMin).toBe(1);
-    expect(publishedPayload.currentQuestion.scaleMax).toBe(10);
-    expect(publishedPayload.currentQuestion).not.toHaveProperty('scale_min');
-    expect(publishedPayload.currentQuestion).not.toHaveProperty('scale_max');
-    expect(publishedPayload.currentQuestion.options).toBeNull();
+    expect(publishedPayload.currentCloud.scaleMin).toBe(1);
+    expect(publishedPayload.currentCloud.scaleMax).toBe(10);
+    expect(publishedPayload.currentCloud).not.toHaveProperty('scale_min');
+    expect(publishedPayload.currentCloud).not.toHaveProperty('scale_max');
+    expect(publishedPayload.currentCloud.options).toBeNull();
   });
 
   it('bumps last_activity_at to now on PATCH (activate)', async () => {
     const db = createDb();
     await db.execute({ sql: 'UPDATE storms SET last_activity_at = ? WHERE storm_code = ?', args: [Date.now() - 3600000, stormCode] });
 
-    await call({ httpMethod: 'PATCH', body: JSON.stringify({ status: 'active', currentQuestionId: questionId }) });
+    await call({ httpMethod: 'PATCH', body: JSON.stringify({ status: 'active', currentCloudId: cloudId }) });
 
     const storm = await getStormByCode(db, stormCode);
     expect(Number(storm.last_activity_at)).toBeGreaterThan(Date.now() - 60000);
@@ -94,46 +94,46 @@ describe('admin-storm function', () => {
     expect(Number(storm.last_activity_at)).toBeGreaterThan(Date.now() - 60000);
   });
 
-  it('deletes the storm and its questions', async () => {
+  it('deletes the storm and its clouds', async () => {
     await call({ httpMethod: 'DELETE' });
     const res = await call({ httpMethod: 'GET' });
     expect(res.statusCode).toBe(401);
   });
 
-  it('rejects setting currentQuestionId to a question belonging to another storm', async () => {
+  it('rejects setting currentCloudId to a cloud belonging to another storm', async () => {
     const db = createDb();
     const other = await seedStorm(db);
-    const otherCreateRes = await other.call(questionsHandler, 'admin-questions', {
+    const otherCreateRes = await other.call(cloudsHandler, 'admin-clouds', {
       httpMethod: 'POST',
-      body: JSON.stringify({ type: 'choice', prompt: 'Other storm question', options: ['X', 'Y'] }),
+      body: JSON.stringify({ kind: 'choice', body: 'Other storm cloud', options: ['X', 'Y'] }),
     });
-    const otherQuestionId = JSON.parse(otherCreateRes.body).id;
+    const otherCloudId = JSON.parse(otherCreateRes.body).id;
     vi.clearAllMocks();
 
-    const res = await call({ httpMethod: 'PATCH', body: JSON.stringify({ currentQuestionId: otherQuestionId }) });
+    const res = await call({ httpMethod: 'PATCH', body: JSON.stringify({ currentCloudId: otherCloudId }) });
     expect(res.statusCode).toBe(400);
-    expect(JSON.parse(res.body)).toEqual({ error: 'Invalid questionId' });
+    expect(JSON.parse(res.body)).toEqual({ error: 'Invalid cloudId' });
     expect(publishEvent).not.toHaveBeenCalled();
 
     const getRes = await call({ httpMethod: 'GET' });
     const body = JSON.parse(getRes.body);
-    expect(body.storm.current_question_id).toBeNull();
+    expect(body.storm.current_cloud_id).toBeNull();
   });
 
-  it('publishes the real tally (not zeroed) when activating a question that already has votes', async () => {
-    // Activate the question once, then record a vote directly against it,
+  it('publishes the real tally (not zeroed) when activating a cloud that already has votes', async () => {
+    // Activate the cloud once, then record a vote directly against it,
     // then "re-activate" it (e.g. presenter clicking Activate again after a
     // partial reset). The republished state event must reflect the real
     // vote count, not an empty tally.
     const db = createDb();
-    await call({ httpMethod: 'PATCH', body: JSON.stringify({ status: 'active', currentQuestionId: questionId }) });
+    await call({ httpMethod: 'PATCH', body: JSON.stringify({ status: 'active', currentCloudId: cloudId }) });
     await db.execute({
-      sql: 'INSERT INTO votes (question_id, device_id, value, created_at) VALUES (?, ?, ?, ?)',
-      args: [questionId, 'dev-x', '0', Date.now()],
+      sql: 'INSERT INTO votes (cloud_id, device_id, value, created_at) VALUES (?, ?, ?, ?)',
+      args: [cloudId, 'dev-x', '0', Date.now()],
     });
     vi.clearAllMocks();
 
-    const res = await call({ httpMethod: 'PATCH', body: JSON.stringify({ status: 'active', currentQuestionId: questionId }) });
+    const res = await call({ httpMethod: 'PATCH', body: JSON.stringify({ status: 'active', currentCloudId: cloudId }) });
     expect(res.statusCode).toBe(200);
 
     const publishedPayload = publishEvent.mock.calls[0][2];
@@ -141,9 +141,9 @@ describe('admin-storm function', () => {
     expect(publishedPayload.initialTally.counts).toEqual([1, 0]);
   });
 
-  it('publishes a state event on a status-only change (closing the storm) with no currentQuestionId in the body', async () => {
-    // First activate a question so the storm has a current_question_id set.
-    await call({ httpMethod: 'PATCH', body: JSON.stringify({ status: 'active', currentQuestionId: questionId }) });
+  it('publishes a state event on a status-only change (closing the storm) with no currentCloudId in the body', async () => {
+    // First activate a cloud so the storm has a current_cloud_id set.
+    await call({ httpMethod: 'PATCH', body: JSON.stringify({ status: 'active', currentCloudId: cloudId }) });
     vi.clearAllMocks();
 
     const res = await call({ httpMethod: 'PATCH', body: JSON.stringify({ status: 'closed' }) });
@@ -151,11 +151,11 @@ describe('admin-storm function', () => {
     expect(publishEvent).toHaveBeenCalledWith(stormCode, 'state', expect.objectContaining({ status: 'closed' }));
 
     const publishedPayload = publishEvent.mock.calls[0][2];
-    // currentQuestion/initialTally should still be present, re-derived from
-    // the storm's existing current_question_id, even though the PATCH body
-    // didn't include currentQuestionId.
-    expect(publishedPayload.currentQuestion).not.toBeNull();
-    expect(publishedPayload.currentQuestion.id).toBe(questionId);
+    // currentCloud/initialTally should still be present, re-derived from
+    // the storm's existing current_cloud_id, even though the PATCH body
+    // didn't include currentCloudId.
+    expect(publishedPayload.currentCloud).not.toBeNull();
+    expect(publishedPayload.currentCloud.id).toBe(cloudId);
     expect(publishedPayload.initialTally).not.toBeNull();
   });
 
@@ -164,8 +164,8 @@ describe('admin-storm function', () => {
     expect(JSON.parse(res.body).showConnect).toBe(true);
   });
 
-  it('presenter can show the join screen during a live question and it persists, publishing a state event', async () => {
-    await call({ httpMethod: 'PATCH', body: JSON.stringify({ status: 'active', currentQuestionId: questionId }) });
+  it('presenter can show the join screen during a live cloud and it persists, publishing a state event', async () => {
+    await call({ httpMethod: 'PATCH', body: JSON.stringify({ status: 'active', currentCloudId: cloudId }) });
     let res = await call({ httpMethod: 'GET' });
     expect(JSON.parse(res.body).showConnect).toBe(false);
     vi.clearAllMocks();
@@ -177,8 +177,8 @@ describe('admin-storm function', () => {
     expect(JSON.parse(res.body).showConnect).toBe(true);
   });
 
-  it('changing the question or status returns the join screen to its automatic state', async () => {
-    await call({ httpMethod: 'PATCH', body: JSON.stringify({ status: 'active', currentQuestionId: questionId }) });
+  it('changing the cloud or status returns the join screen to its automatic state', async () => {
+    await call({ httpMethod: 'PATCH', body: JSON.stringify({ status: 'active', currentCloudId: cloudId }) });
     await call({ httpMethod: 'PATCH', body: JSON.stringify({ showConnect: true }) });
     vi.clearAllMocks();
 
@@ -216,7 +216,7 @@ describe('admin-storm function', () => {
     });
 
     it('refuses a request signed for the other admin function', async () => {
-      const res = await handler(await admin.sign('admin-questions', { httpMethod: 'DELETE' }));
+      const res = await handler(await admin.sign('admin-clouds', { httpMethod: 'DELETE' }));
       expect(res.statusCode).toBe(401);
       expect(await getStormByCode(createDb(), stormCode)).not.toBeNull();
     });
@@ -260,16 +260,16 @@ describe('admin-storm function', () => {
 
   describe('locking voting and the timer', () => {
     const patch = (body) => call({ httpMethod: 'PATCH', body: JSON.stringify({ ...body }) });
-    const row = async () => (await createDb().execute({ sql: 'SELECT closes_at FROM questions WHERE id = ?', args: [questionId] })).rows[0];
-    const detail = async () => JSON.parse((await call({ httpMethod: 'GET' })).body).questions[0];
-    const live = () => patch({ status: 'active', currentQuestionId: questionId });
+    const row = async () => (await createDb().execute({ sql: 'SELECT closes_at FROM clouds WHERE id = ?', args: [cloudId] })).rows[0];
+    const detail = async () => JSON.parse((await call({ httpMethod: 'GET' })).body).clouds[0];
+    const live = () => patch({ status: 'active', currentCloudId: cloudId });
     const lastState = () => publishEvent.mock.calls.filter((c) => c[1] === 'state').at(-1)[2];
 
     it('starts open, with no timer', async () => {
       await live();
       expect((await row()).closes_at).toBeNull();
       expect((await detail()).voting_ms_left).toBeNull();
-      expect(lastState().currentQuestion.votingMsLeft).toBeNull();
+      expect(lastState().currentCloud.votingMsLeft).toBeNull();
     });
 
     it('starts a timer and tells everyone how long is left', async () => {
@@ -277,7 +277,7 @@ describe('admin-storm function', () => {
       vi.clearAllMocks();
       const res = await patch({ votingSeconds: 30 });
       expect(res.statusCode).toBe(200);
-      const left = lastState().currentQuestion.votingMsLeft;
+      const left = lastState().currentCloud.votingMsLeft;
       expect(left).toBeGreaterThan(29000);
       expect(left).toBeLessThanOrEqual(30000);
       expect((await detail()).voting_ms_left).toBeGreaterThan(29000);
@@ -287,13 +287,29 @@ describe('admin-storm function', () => {
       await live();
       await patch({ votingLocked: true });
       expect((await detail()).voting_ms_left).toBe(0);
-      expect(lastState().currentQuestion.votingMsLeft).toBe(0);
+      expect(lastState().currentCloud.votingMsLeft).toBe(0);
       await patch({ votingLocked: false });
       expect((await row()).closes_at).toBeNull();
-      expect(lastState().currentQuestion.votingMsLeft).toBeNull();
+      expect(lastState().currentCloud.votingMsLeft).toBeNull();
     });
 
-    it('adds time to a running timer, and reopens a closed question for that long', async () => {
+    it('accepts the clearTimer marker the presenter sends with a content cloud\'s Clear timer, and just unlocks', async () => {
+      await live();
+      await patch({ votingSeconds: 30 });
+      const res = await patch({ votingLocked: false, clearTimer: true });
+      expect(res.statusCode).toBe(200);
+      expect((await row()).closes_at).toBeNull();
+    });
+
+    it('accepts the words marker the presenter sends when locking a word cloud, and just locks and unlocks', async () => {
+      await live();
+      expect((await patch({ votingLocked: true, words: true })).statusCode).toBe(200);
+      expect((await detail()).voting_ms_left).toBe(0);
+      expect((await patch({ votingLocked: false, words: true })).statusCode).toBe(200);
+      expect((await row()).closes_at).toBeNull();
+    });
+
+    it('adds time to a running timer, and reopens a closed cloud for that long', async () => {
       await live();
       await patch({ votingSeconds: 10 });
       await patch({ votingAddSeconds: 30 });
@@ -312,23 +328,23 @@ describe('admin-storm function', () => {
       for (const bad of [{ votingSeconds: 0 }, { votingSeconds: 3601 }, { votingSeconds: 1.5 }, { votingSeconds: '30' }, { votingAddSeconds: -5 }, { votingLocked: true, votingSeconds: 30 }]) {
         expect((await patch(bad)).statusCode).toBe(400);
       }
-      expect((await patch({ votingLocked: true, questionId: 99999 })).statusCode).toBe(400);
+      expect((await patch({ votingLocked: true, cloudId: 99999 })).statusCode).toBe(400);
       expect((await row()).closes_at).toBeNull();
       expect(publishEvent).not.toHaveBeenCalled();
     });
 
-    it('has nothing to lock when no question is live', async () => {
+    it('has nothing to lock when no cloud is live', async () => {
       expect((await patch({ votingLocked: true })).statusCode).toBe(400);
     });
 
-    it('brings a question live open again, even if it was locked or timed out before', async () => {
+    it('brings a cloud live open again, even if it was locked or timed out before', async () => {
       await live();
       await patch({ votingLocked: true });
-      const other = JSON.parse((await callQuestions({ httpMethod: 'POST', body: JSON.stringify({ type: 'choice', prompt: 'Two', options: ['X', 'Y'] }) })).body).id;
-      await patch({ status: 'active', currentQuestionId: other });
-      await patch({ status: 'active', currentQuestionId: questionId });
+      const other = JSON.parse((await callClouds({ httpMethod: 'POST', body: JSON.stringify({ kind: 'choice', body: 'Two', options: ['X', 'Y'] }) })).body).id;
+      await patch({ status: 'active', currentCloudId: other });
+      await patch({ status: 'active', currentCloudId: cloudId });
       expect((await row()).closes_at).toBeNull();
-      expect(lastState().currentQuestion.votingMsLeft).toBeNull();
+      expect(lastState().currentCloud.votingMsLeft).toBeNull();
     });
   });
 
@@ -350,7 +366,7 @@ describe('admin-storm function', () => {
     it('keeps the colour in later state events, and clears it with null', async () => {
       await patch({ resultsBackground: '#ffcc00' });
       vi.clearAllMocks();
-      await patch({ status: 'active', currentQuestionId: questionId });
+      await patch({ status: 'active', currentCloudId: cloudId });
       expect(publishEvent.mock.calls[0][2].resultsBackground).toBe('#ffcc00');
 
       vi.clearAllMocks();
@@ -370,33 +386,33 @@ describe('admin-storm function', () => {
   });
 
   it('hides results and only reveals the correct answer when the presenter says so', async () => {
-    const created = await callQuestions({ httpMethod: 'POST', body: JSON.stringify({ type: 'choice', prompt: 'Quiz', options: ['X', 'Y', 'Z'], correct: [1, 1, 9], resultsHidden: true }) });
+    const created = await callClouds({ httpMethod: 'POST', body: JSON.stringify({ kind: 'choice', body: 'Quiz', options: ['X', 'Y', 'Z'], correct: [1, 1, 9], resultsHidden: true }) });
     const qid = JSON.parse(created.body).id;
-    await call({ httpMethod: 'PATCH', body: JSON.stringify({ status: 'active', currentQuestionId: qid }) });
+    await call({ httpMethod: 'PATCH', body: JSON.stringify({ status: 'active', currentCloudId: qid }) });
     let payload = publishEvent.mock.calls.at(-1)[2];
-    expect(payload.currentQuestion).toMatchObject({ resultsHidden: true, correct: null });
+    expect(payload.currentCloud).toMatchObject({ resultsHidden: true, correct: null });
     expect(payload.initialTally).toEqual({ totalVotes: 0, hidden: true });
 
     await call({ httpMethod: 'PATCH', body: JSON.stringify({ resultsHidden: false }) });
     payload = publishEvent.mock.calls.at(-1)[2];
-    expect(payload.currentQuestion).toMatchObject({ resultsHidden: false, correct: null });
+    expect(payload.currentCloud).toMatchObject({ resultsHidden: false, correct: null });
     expect(payload.initialTally.counts).toEqual([0, 0, 0]);
 
     await call({ httpMethod: 'PATCH', body: JSON.stringify({ answerShown: true }) });
     payload = publishEvent.mock.calls.at(-1)[2];
-    expect(payload.currentQuestion.correct).toEqual([1]);
+    expect(payload.currentCloud.correct).toEqual([1]);
   });
 
-  it('lets the presenter hide results for a question that is not the live one', async () => {
-    const created = await callQuestions({ httpMethod: 'POST', body: JSON.stringify({ type: 'choice', prompt: 'Later', options: ['X', 'Y'] }) });
+  it('lets the presenter hide results for a cloud that is not the live one', async () => {
+    const created = await callClouds({ httpMethod: 'POST', body: JSON.stringify({ kind: 'choice', body: 'Later', options: ['X', 'Y'] }) });
     const laterId = JSON.parse(created.body).id;
-    await call({ httpMethod: 'PATCH', body: JSON.stringify({ status: 'active', currentQuestionId: questionId }) });
-    const res = await call({ httpMethod: 'PATCH', body: JSON.stringify({ questionId: laterId, resultsHidden: true }) });
+    await call({ httpMethod: 'PATCH', body: JSON.stringify({ status: 'active', currentCloudId: cloudId }) });
+    const res = await call({ httpMethod: 'PATCH', body: JSON.stringify({ cloudId: laterId, resultsHidden: true }) });
     expect(res.statusCode).toBe(200);
     const db = createDb();
-    const rows = (await db.execute({ sql: 'SELECT id, results_hidden FROM questions ORDER BY id', args: [] })).rows;
+    const rows = (await db.execute({ sql: 'SELECT id, results_hidden FROM clouds ORDER BY id', args: [] })).rows;
     expect(rows.find((r) => r.id === laterId).results_hidden).toBe(1);
-    expect(rows.find((r) => r.id === questionId).results_hidden).toBe(0);
+    expect(rows.find((r) => r.id === cloudId).results_hidden).toBe(0);
   });
 
   it('returns 400 on malformed JSON in PATCH body', async () => {

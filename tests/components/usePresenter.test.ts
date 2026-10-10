@@ -17,8 +17,8 @@ import { usePresenter } from '@/composables/usePresenter';
 
 const stormData = (code: string) =>
   ({
-    storm: { storm_code: code, status: 'lobby', current_question_id: null, name: null },
-    questions: [],
+    storm: { storm_code: code, status: 'lobby', current_cloud_id: null, name: null },
+    clouds: [],
     showConnect: false,
     license: { tier: 'anonymous', name: 'Anonymous', expiresAt: null, limits: { stormInactivityHours: 24 } },
   }) as unknown as AdminStormData;
@@ -149,6 +149,26 @@ describe('usePresenter when the link moves to another Storm mid-request', () => 
 
     expect(store.error.value).toBe('boom');
     expect(store.storm.value?.storm_code).toBe('BBBBBBBB');
+  });
+
+  it('removes and restores a word with a signed PATCH, then reloads', async () => {
+    const cloud = { id: 7 } as never;
+    const loads = () => signedMock.mock.calls.filter((c) => c[1] === 'admin-storm' && !c[2]?.method).length;
+    const before = loads();
+    expect(await store.hideWord(cloud, 'rude')).toBe(true);
+    expect(await store.showWord(cloud, 'rude')).toBe(true);
+    const patches = signedMock.mock.calls.filter((c) => c[1] === 'admin-clouds' && c[2]?.method === 'PATCH').map((c) => JSON.parse(c[2].body));
+    expect(patches).toEqual([{ cloudId: 7, hideWord: 'rude' }, { cloudId: 7, showWord: 'rude' }]);
+    expect(loads()).toBe(before + 2);
+  });
+
+  it('shows the error and returns false when removing a word fails', async () => {
+    const gate = deferred();
+    patchGate = gate;
+    const removing = store.hideWord({ id: 7 } as never, 'rude');
+    gate.reject(new Error('nope'));
+    expect(await removing).toBe(false);
+    expect(store.error.value).toBe('nope');
   });
 
   it('still applies a change for the current Storm normally', async () => {

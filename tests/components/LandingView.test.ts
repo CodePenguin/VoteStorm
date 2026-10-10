@@ -35,6 +35,7 @@ describe('LandingView', () => {
   it('explains the three steps', async () => {
     const { wrapper } = await mountAt('/');
     expect(wrapper.findAll('.step').map((s) => s.find('h2').text())).toEqual(['Create', 'Share', 'Watch live']);
+    expect(wrapper.find('.step p').text()).toBe('Spin up a Storm and add questions, word clouds, quotes or pictures.');
   });
 
   it('links to Your Storms only once this device has some', async () => {

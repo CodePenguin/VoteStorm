@@ -72,6 +72,9 @@ describe('LicenseView', () => {
     expect(wrapper.text()).toContain('7 days of inactivity');
     expect(wrapper.text()).toContain('40');
     expect(wrapper.text()).toContain('500');
+    // The claim is still maxQuestionsPerStorm; only the visible label says clouds.
+    expect(wrapper.text()).toContain('Clouds per Storm');
+    expect(wrapper.text()).not.toContain('Questions per Storm');
     expect(wrapper.text()).toContain('Replace license');
     expect((wrapper.find('textarea').element as HTMLTextAreaElement).value).toBe('');
   });
