@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import MarkdownContent from '@/components/MarkdownContent.vue';
-import { kindLabel, parseCorrect, parseOptions } from '@/lib/presenter';
+import { kindLabel, parseCorrect, parseOptions, timerNote } from '@/lib/presenter';
 import type { PresenterStore } from '@/composables/usePresenter';
 import { useOverflows } from '@/composables/useOverflows';
 import type { AdminCloud } from '@/shared/types';
@@ -12,6 +12,7 @@ const emit = defineEmits<{ edit: [q: AdminCloud] }>();
 const options = computed(() => parseOptions(props.q));
 const correct = computed(() => parseCorrect(props.q));
 const typeLabel = computed(() => kindLabel(props.q));
+const timer = computed(() => timerNote(props.q));
 const promptBox = ref<HTMLElement | null>(null);
 const clipped = useOverflows(promptBox);
 </script>
@@ -28,6 +29,7 @@ const clipped = useOverflows(promptBox);
           <span v-if="q.kind === 'choice' && q.display === 'donut'" class="badge">Donut</span>
           <span v-if="q.results_hidden" class="badge">Results hidden</span>
           <span v-if="q.correct" class="badge">Has answer</span>
+          <span v-if="timer" class="badge timer-badge">Timer {{ timer }}</span>
         </div>
       </div>
       <button class="icon-btn" aria-label="Edit cloud" title="Edit cloud" @click="emit('edit', q)">

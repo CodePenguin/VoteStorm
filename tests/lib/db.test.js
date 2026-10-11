@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
+import { createClient } from '@libsql/client';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -18,6 +19,31 @@ function tempDbUrl() {
 }
 
 describe('db', () => {
+  it('gives clouds the timer columns, with no timer by default', async () => {
+    const db = createDb(tempDbUrl());
+    await initSchema(db);
+    const columns = (await db.execute('PRAGMA table_info(clouds)')).rows.map((r) => r.name);
+    expect(columns).toEqual(expect.arrayContaining(['timer_seconds', 'timer_auto']));
+    await db.execute({ sql: "INSERT INTO clouds (storm_code, order_index, kind, body, created_at) VALUES ('S', 0, 'content', 'x', ?)", args: [Date.now()] });
+    const row = (await db.execute('SELECT timer_seconds, timer_auto FROM clouds')).rows[0];
+    expect(row.timer_seconds).toBeNull();
+    expect(row.timer_auto).toBe(0);
+  });
+
+  it('adds the timer columns to an existing clouds table and keeps its rows', async () => {
+    // A database from before timers. A client that createDb did not make runs the schema directly (no per-URL cache).
+    const raw = createClient({ url: tempDbUrl() });
+    await raw.execute(`CREATE TABLE storms (admin_key_hash TEXT PRIMARY KEY, storm_code TEXT UNIQUE, status TEXT NOT NULL DEFAULT 'lobby', current_cloud_id INTEGER, created_at INTEGER NOT NULL)`);
+    await raw.execute(`CREATE TABLE clouds (id INTEGER PRIMARY KEY AUTOINCREMENT, storm_code TEXT NOT NULL, order_index INTEGER NOT NULL, kind TEXT NOT NULL, body TEXT NOT NULL, options TEXT, scale_min INTEGER, scale_max INTEGER, created_at INTEGER NOT NULL)`);
+    await raw.execute(`CREATE TABLE votes (id INTEGER PRIMARY KEY AUTOINCREMENT, cloud_id INTEGER NOT NULL, device_id TEXT NOT NULL, value TEXT NOT NULL, created_at INTEGER NOT NULL, UNIQUE(cloud_id, device_id))`);
+    await raw.execute({ sql: "INSERT INTO clouds (storm_code, order_index, kind, body, created_at) VALUES ('S', 0, 'content', 'kept', ?)", args: [Date.now()] });
+    await initSchema(raw);
+    const row = (await raw.execute('SELECT body, timer_seconds, timer_auto FROM clouds')).rows[0];
+    expect(row.body).toBe('kept');
+    expect(row.timer_seconds).toBeNull();
+    expect(row.timer_auto).toBe(0);
+  });
+
   it('creates all tables on a fresh local sqlite file', async () => {
     const db = createDb(tempDbUrl());
     await initSchema(db);

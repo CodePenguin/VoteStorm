@@ -156,8 +156,14 @@ async function init() {
   ably?.close();
   ably = subscribeStorm(store.storm.value!.storm_code, {
     tally: (data) => store.onTally(data),
-    state: () => store.safeLoad(),
+    state: () => onState(),
   });
+}
+
+// Another device may have deleted the cloud being edited here (or imported a file, which replaces every cloud): its form goes.
+async function onState() {
+  await store.safeLoad();
+  if (editingId.value !== null && !store.clouds.value.some((q) => q.id === editingId.value)) cancelForm();
 }
 
 // The link can change under this page (browser Back after Duplicate, or opening another Storm), so everything shown and
@@ -276,7 +282,7 @@ onBeforeUnmount(() => {
           </div>
 
           <div v-show="tab === 'storm'" role="tabpanel">
-            <ControlTab :store="store" @deleted="router.push('/presenter')" @duplicated="openCopy" />
+            <ControlTab :store="store" @deleted="router.push('/presenter')" @duplicated="openCopy" @imported="cancelForm" />
           </div>
         </div>
       </div>
@@ -319,5 +325,10 @@ onBeforeUnmount(() => {
 .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 999px; padding: 2px; background: var(--surface-2); }
 .seg button { border: 0; background: transparent; color: var(--text-muted); font: inherit; font-size: .82rem; font-weight: 700; padding: 5px 14px; border-radius: 999px; cursor: pointer; }
 .seg button.on { background: var(--accent); color: var(--accent-contrast); }
-@media (max-width: 420px) { .presenter-page .app-header .container { gap: 8px; } }
+/* On a phone the header holds the logo, the mode switch, Share and the status badge: the wordmark goes (its text stays the
+   link's name for screen readers) so the badge is not pushed off the right edge. */
+@media (max-width: 420px) {
+  .presenter-page .app-header .container { gap: 8px; }
+  .presenter-page .app-header .brand { font-size: 0; gap: 0; }
+}
 </style>

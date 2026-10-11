@@ -2,7 +2,7 @@
 import { computed } from 'vue';
 import BrandMark from '@/components/BrandMark.vue';
 import PresentStatus from '@/components/presenter/PresentStatus.vue';
-import { firstLine, phaseText, presentStatus } from '@/lib/presenter';
+import { firstLine, formatDuration, phaseText, presentStatus, timerNote } from '@/lib/presenter';
 import type { PresenterStore } from '@/composables/usePresenter';
 import type { VotingPhase } from '@/composables/useVotingClock';
 import type { AdminCloud } from '@/shared/types';
@@ -40,6 +40,10 @@ const KEYS: [string, string][] = [
   ['Esc', 'close the editor, then leave'],
 ];
 
+const presetSeconds = computed(() => props.cloud?.timer_seconds ?? null);
+function startPreset() {
+  if (props.cloud && presetSeconds.value) void props.store.startTimer(props.cloud, presetSeconds.value);
+}
 const text = computed(() => phaseText(props.cloud?.kind ?? 'choice'));
 const isContent = computed(() => props.cloud?.kind === 'content');
 const index = computed(() => props.store.currentIndex.value);
@@ -79,6 +83,7 @@ const lines = computed(() =>
 
     <template v-if="cloud">
       <h2>Timer</h2>
+      <button v-if="presetSeconds && phase !== 'running'" class="btn sm primary timer-preset" @click="startPreset">Start {{ formatDuration(presetSeconds) }} timer</button>
       <div class="timer-chips-row" :class="{ armed }" role="group" aria-label="Start a timer">
         <button v-for="t in TIMERS" :key="t.seconds" class="btn sm" @click="store.startTimer(cloud, t.seconds)">{{ t.label }}</button>
       </div>
@@ -125,7 +130,11 @@ const lines = computed(() =>
       <h2>Clouds</h2>
       <div v-for="(item, i) in store.clouds.value" :key="item.id" class="li" :class="{ live: item.id === liveId }">
         <span class="li-num">{{ i + 1 }}</span>
-        <span class="li-text" :title="firstLine(item.body)">{{ firstLine(item.body) }}</span>
+        <!-- The timer note sits under the title, so a long note ("1m 30s, auto") never squeezes the title in the narrow rail. -->
+        <span class="li-main">
+          <span class="li-text" :title="firstLine(item.body)">{{ firstLine(item.body) }}</span>
+          <span v-if="timerNote(item)" class="li-timer muted"><span class="sr-only">Timer: </span>{{ timerNote(item) }}</span>
+        </span>
         <span class="li-count muted">{{ item.kind === 'content' ? '' : item.tally.totalVotes || 0 }}</span>
         <span class="li-actions">
           <!-- In the narrow rail Copy link is an icon (its words stay for screen readers) so each cloud fits on one line. -->
@@ -171,7 +180,9 @@ const lines = computed(() =>
 .cloud-list .li.live { font-weight: 700; }
 .cloud-list .li-num { flex: none; min-width: 1.6em; text-align: center; font-size: .72rem; font-weight: 700; padding: 1px 4px; border-radius: 6px; background: var(--surface-2); color: var(--text-muted); }
 .cloud-list .li.live .li-num { background: var(--accent); color: var(--accent-contrast); }
-.cloud-list .li-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cloud-list .li-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.cloud-list .li-text, .cloud-list .li-timer { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cloud-list .li-timer { font-size: .72rem; font-weight: 400; font-variant-numeric: tabular-nums; }
 .cloud-list .li-count { flex: none; font-variant-numeric: tabular-nums; }
 .cloud-list .li-actions { flex: none; display: flex; align-items: center; gap: 6px; }
 .cloud-list .copy-icon { display: none; }

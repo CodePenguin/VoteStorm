@@ -36,6 +36,27 @@ describe('admin-clouds function', () => {
     expect(JSON.parse(res.body)).toEqual({ error: 'Invalid admin credentials' });
   });
 
+  it('stores a cloud timer on create and edit, and lists it to the presenter', async () => {
+    const created = await call({ httpMethod: 'POST', body: JSON.stringify({ kind: 'content', body: 'Read', timerSeconds: 120, timerAuto: true }) });
+    expect(created.statusCode).toBe(200);
+    const id = JSON.parse(created.body).id;
+    const listed = async () => JSON.parse((await call({ httpMethod: 'GET' })).body).clouds[0];
+    expect(await listed()).toMatchObject({ timer_seconds: 120, timer_auto: 1 });
+
+    const edit = (fields) => call({ httpMethod: 'PATCH', body: JSON.stringify({ cloudId: id, edit: { kind: 'content', body: 'Read', ...fields } }) });
+    expect((await edit({ timerSeconds: 30 })).statusCode).toBe(200);
+    expect(await listed()).toMatchObject({ timer_seconds: 30, timer_auto: 0 });
+    expect((await edit({})).statusCode).toBe(200);
+    expect(await listed()).toMatchObject({ timer_seconds: null, timer_auto: 0 });
+  });
+
+  it('refuses a bad timer and stores nothing', async () => {
+    for (const timerSeconds of [0, 3601, 2.5, '60']) {
+      expect((await call({ httpMethod: 'POST', body: JSON.stringify({ kind: 'content', body: 'Read', timerSeconds }) })).statusCode).toBe(400);
+    }
+    expect(JSON.parse((await call({ httpMethod: 'GET' })).body).clouds).toHaveLength(0);
+  });
+
   it('rejects the old x-admin-key header', async () => {
     const res = await handler({ httpMethod: 'GET', headers: { 'x-admin-key': 'a'.repeat(48) } });
     expect(res.statusCode).toBe(401);
@@ -280,6 +301,11 @@ describe('admin-clouds function', () => {
 });
 
 describe('cloud display type', () => {
+  it('shapeCloud never tells the audience about the cloud timer setting', async () => {
+    const { shapeCloud } = await import('../../lib/cloud.js');
+    const shaped = shapeCloud({ id: 1, kind: 'content', body: 'p', timer_seconds: 60, timer_auto: 1, closes_at: null });
+    expect(Object.keys(shaped).filter((k) => /timer/i.test(k))).toEqual([]);
+  });
   it('shapeCloud only reports donut for choice clouds', async () => {
     const { shapeCloud } = await import('../../lib/cloud.js');
     const base = { id: 1, kind: 'choice', body: 'p', options: '["a","b"]' };
@@ -341,6 +367,32 @@ describe('cloud editing', () => {
     expect((await edit({ options: ['only one'] })).statusCode).toBe(400);
     expect((await edit({ body: '  ' })).statusCode).toBe(400);
     expect((await call({ edit: { kind: 'rating', body: 'x', scaleMin: 5, scaleMax: 5 } })).statusCode).toBe(400);
+  });
+
+  it('answers 400, not a crash, for correct answers that are not a list of numbers, on create and on edit', async () => {
+    for (const correct of [[JSON.parse('{"toString":null}')], JSON.parse('{"toString":null}'), '0', ['1']]) {
+      const created = await signed({ httpMethod: 'POST', body: JSON.stringify({ kind: 'choice', body: 'Pick', options: ['A', 'B'], correct }) });
+      expect(created.statusCode).toBe(400);
+      expect(JSON.parse(created.body).error).toBeTruthy();
+      const edited = await edit({ correct });
+      expect(edited.statusCode).toBe(400);
+      expect(JSON.parse(edited.body).error).toBeTruthy();
+    }
+    const row = (await createDb().execute({ sql: 'SELECT * FROM clouds WHERE id = ?', args: [qid] })).rows[0];
+    expect(row.correct).toBeNull();
+  });
+
+  it('answers 400, not a crash, for options that are not a list of text, on create and on edit', async () => {
+    for (const options of [[JSON.parse('{"toString":null}'), 'B'], [{}, 'B'], 'AB']) {
+      const created = await signed({ httpMethod: 'POST', body: JSON.stringify({ kind: 'choice', body: 'Pick', options }) });
+      expect(created.statusCode).toBe(400);
+      expect(JSON.parse(created.body).error).toBeTruthy();
+      const edited = await edit({ options });
+      expect(edited.statusCode).toBe(400);
+      expect(JSON.parse(edited.body).error).toBeTruthy();
+    }
+    const row = (await createDb().execute({ sql: 'SELECT * FROM clouds WHERE id = ?', args: [qid] })).rows[0];
+    expect(row.options).toBe('["A","B"]');
   });
 
   it('creates a content cloud', async () => {

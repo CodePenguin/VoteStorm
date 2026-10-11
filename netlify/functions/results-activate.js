@@ -1,7 +1,7 @@
 import { createDb, initSchema, getStormByResultsKeyHash, touchStormActivity, connectVisible, resultsBackground } from '../../lib/db.js';
 import { hashResultsKey } from '../../lib/stormCode.js';
 import { computeTally } from '../../lib/tally.js';
-import { shapeCloud, publicTally } from '../../lib/cloud.js';
+import { shapeCloud, publicTally, closesAtOnActivation } from '../../lib/cloud.js';
 import { publishEvent } from '../../lib/realtime.js';
 import { json } from '../../lib/http.js';
 
@@ -42,12 +42,13 @@ export async function handler(event) {
     sql: `UPDATE storms SET status = 'active', current_cloud_id = ?, show_connect = NULL WHERE storm_code = ?`,
     args: [cloud.id, storm.storm_code],
   });
-  // A cloud that comes live starts open, whatever lock or timer it had before.
-  await db.execute({ sql: 'UPDATE clouds SET closes_at = NULL WHERE id = ?', args: [cloud.id] });
+  // A cloud that comes live starts open, whatever lock or timer it had before, unless its own timer starts by itself.
+  const closesAt = closesAtOnActivation(cloud);
+  await db.execute({ sql: 'UPDATE clouds SET closes_at = ? WHERE id = ?', args: [closesAt, cloud.id] });
   const votes = (await db.execute({ sql: 'SELECT * FROM votes WHERE cloud_id = ?', args: [cloud.id] })).rows;
   await publishEvent(storm.storm_code, 'state', {
     status: 'active',
-    currentCloud: shapeCloud({ ...cloud, closes_at: null }),
+    currentCloud: shapeCloud({ ...cloud, closes_at: closesAt }),
     initialTally: publicTally(cloud, computeTally(cloud, votes)),
     showConnect: connectVisible({ show_connect: null }, 'active', cloud.id),
     resultsBackground: resultsBackground(storm),

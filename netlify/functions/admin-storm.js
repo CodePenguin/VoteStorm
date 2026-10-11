@@ -5,7 +5,7 @@ import { MAX_NAME_LENGTH, normalizeStormName } from '../../lib/storms.js';
 import { applyPresentedLicense, describeLicense } from '../../lib/license.js';
 import { computeTally } from '../../lib/tally.js';
 import { publishEvent } from '../../lib/realtime.js';
-import { shapeCloud, publicTally, votingMsLeft, MAX_VOTING_SECONDS } from '../../lib/cloud.js';
+import { shapeCloud, publicTally, votingMsLeft, closesAtOnActivation, MAX_VOTING_SECONDS } from '../../lib/cloud.js';
 import { json } from '../../lib/http.js';
 
 export async function handler(event) {
@@ -54,6 +54,7 @@ export async function handler(event) {
       return json(200, { ok: true });
     }
 
+    let goingLive = null;
     if (bodyData.currentCloudId) {
       // Deviation from brief: scope the lookup by storm_code as well as id to
       // prevent cross-storm IDOR (an admin pointing their storm's current
@@ -63,7 +64,8 @@ export async function handler(event) {
         sql: 'SELECT * FROM clouds WHERE id = ? AND storm_code = ?',
         args: [bodyData.currentCloudId, storm.storm_code],
       });
-      if (!cloudResult.rows[0]) {
+      goingLive = cloudResult.rows[0] ?? null;
+      if (!goingLive) {
         return json(400, { error: 'Invalid cloudId' });
       }
     }
@@ -123,9 +125,13 @@ export async function handler(event) {
     if (bodyData.currentCloudId !== undefined) {
       fields.push('current_cloud_id = ?');
       args.push(bodyData.currentCloudId);
-      // A cloud that comes live starts open, whatever lock or timer it had before.
+      // A cloud that comes live starts open, whatever lock or timer it had before; one whose own timer starts by itself
+      // starts it now. Choosing the cloud that is already live changes nothing.
       if (Number(bodyData.currentCloudId) !== Number(storm.current_cloud_id)) {
-        await db.execute({ sql: 'UPDATE clouds SET closes_at = NULL WHERE id = ? AND storm_code = ?', args: [bodyData.currentCloudId, storm.storm_code] });
+        await db.execute({
+          sql: 'UPDATE clouds SET closes_at = ? WHERE id = ? AND storm_code = ?',
+          args: [goingLive ? closesAtOnActivation(goingLive) : null, bodyData.currentCloudId, storm.storm_code],
+        });
       }
     }
     if (bodyData.showConnect !== undefined) {

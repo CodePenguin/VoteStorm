@@ -9,7 +9,7 @@ export function makeCloud(over: Partial<AdminCloud> = {}): AdminCloud {
   return {
     id, storm_code: 'ABCDEFGH', order_index: id, kind: 'choice', body: `Cloud ${id}`, options: JSON.stringify(['Red', 'Blue']),
     scale_min: null, scale_max: null, multi: 0, results_hidden: 0, answer_shown: 0, correct: null, display: 'bars', closes_at: null,
-    voting_ms_left: null, max_words: null, hidden_words: null, tally: { counts: [3, 1], totalVotes: 4 },
+    voting_ms_left: null, max_words: null, hidden_words: null, timer_seconds: null, timer_auto: 0, tally: { counts: [3, 1], totalVotes: 4 },
     ...over,
   } as AdminCloud;
 }
@@ -26,7 +26,7 @@ export function makeStore(over: { clouds?: AdminCloud[]; currentId?: number | nu
     currentIndex: computed(() => clouds.value.findIndex((c) => c.id === storm.value.current_cloud_id)),
     canStep: vi.fn(() => true), stepCloud: done(), activate: done(), startTimer: done(), addTime: done(), clearTimer: done(), lockVoting: done(),
     setCloudFlag: done(), setConnect: done(), hideWord: done(), showWord: done(), copyCloudLink: done(),
-    load: done(), safeLoad: done(), reset: vi.fn(), onTally: vi.fn(), swap: done(), saveCloud: done(), deleteStorm: done(), duplicateStorm: done(), setName: done(), setResultsBackground: done(),
+    load: done(), safeLoad: done(), reset: vi.fn(), onTally: vi.fn(), swap: done(), saveCloud: done(), deleteStorm: done(), duplicateStorm: done(), importStorm: vi.fn().mockResolvedValue({ ok: true }), setName: done(), setResultsBackground: done(),
     resetCloud: done(), resetStorm: done(), closeStorm: done(), reopenStorm: done(), deleteCloud: done(), cloudLink: vi.fn(() => 'https://example.test/vote/ABCDEFGH'),
   } as unknown as PresenterStore;
 }

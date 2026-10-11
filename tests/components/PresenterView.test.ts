@@ -76,7 +76,7 @@ import PresenterView from '@/views/PresenterView.vue';
 const cloud = (id: number, over: Partial<AdminCloud> = {}): AdminCloud => ({
   id, storm_code: 'ABCDEFGH', order_index: id, kind: 'choice', body: `Cloud ${id}`, options: JSON.stringify(['A', 'B']),
   scale_min: null, scale_max: null, multi: 0, results_hidden: 0, answer_shown: 0, correct: null, display: 'bars',
-  max_words: null, hidden_words: null, tally: { counts: [2, 1], totalVotes: 3 }, ...over,
+  max_words: null, hidden_words: null, timer_seconds: null, timer_auto: 0, tally: { counts: [2, 1], totalVotes: 3 }, ...over,
 });
 
 // Present mode listens for keys on the window, so every page is unmounted after its test.
@@ -525,6 +525,45 @@ describe('PresenterView', () => {
     await wrapper.findAll('.share-card .btn')[0].trigger('click');
     await flushPromises();
     expect(copied).toEqual([`${window.location.origin}/vote/ABCDEFGH`]);
+  });
+
+  it('closes an open edit form when an import replaces the clouds', async () => {
+    const { wrapper } = await mountPresenter();
+    await wrapper.findAll('.cloud')[0].find('.icon-btn').trigger('click');
+    expect(wrapper.find('.card textarea').exists()).toBe(true);
+    await wrapper.findAll('.tab')[1].trigger('click');
+    const input = wrapper.find('input[type=file]');
+    const file = JSON.stringify({ votestorm: 1, name: 'N', clouds: [{ kind: 'content', body: 'x' }] });
+    Object.defineProperty(input.element, 'files', { value: [new File([file], 's.json')], configurable: true });
+    await input.trigger('change');
+    await vi.waitFor(() => expect(wrapper.find('.import-confirm').exists()).toBe(true));
+    await wrapper.find('.import-confirm').trigger('click');
+    await flushPromises();
+    expect(calls.some((c) => c.path === 'admin-import')).toBe(true);
+    expect(wrapper.find('.card textarea').exists()).toBe(false);
+  });
+
+  it('closes an edit form when another device removed its cloud, and keeps it while the cloud is still there', async () => {
+    const { wrapper } = await mountPresenter();
+    await wrapper.findAll('.cloud')[0].find('.icon-btn').trigger('click');
+    expect(wrapper.find('.card textarea').exists()).toBe(true);
+    channel.handlers.state({});
+    await flushPromises();
+    expect(wrapper.find('.card textarea').exists()).toBe(true);
+
+    data.clouds = data.clouds.filter((q) => q.id !== 1);
+    channel.handlers.state({});
+    await flushPromises();
+    expect(wrapper.find('.card textarea').exists()).toBe(false);
+  });
+
+  it('keeps a new-cloud form open when another device changes the Storm', async () => {
+    const { wrapper } = await mountPresenter();
+    await btn(wrapper, '+ Add cloud').trigger('click');
+    data.clouds = [];
+    channel.handlers.state({});
+    await flushPromises();
+    expect(wrapper.find('.card textarea').exists()).toBe(true);
   });
 
   it('toggles the join screen and closes or reopens the storm from the Control tab', async () => {
@@ -1020,5 +1059,22 @@ describe('PresenterView', () => {
     expect(createStormMock).toHaveBeenCalledTimes(1);
     expect(router.currentRoute.value.fullPath).toBe(`/presenter/NEW00001#k=${NEW_SECRET}`);
     expect(loadRecent().map((e) => [e.stormCode, e.secret])).toEqual([['NEW00001', NEW_SECRET]]);
+  });
+
+  it('notes a cloud\'s timer on its card', async () => {
+    data.clouds = [cloud(1, { timer_seconds: 120, timer_auto: 1 }), cloud(2)];
+    const { wrapper } = await mountPresenter();
+    const [timed, plain] = wrapper.findAll('.cloud');
+    expect(timed.find('.timer-badge').exists()).toBe(true);
+    expect(plain.find('.timer-badge').exists()).toBe(false);
+  });
+
+  it('keeps a cloud\'s timer when it is edited', async () => {
+    data.clouds = [cloud(1, { timer_seconds: 45, timer_auto: 0 }), cloud(2)];
+    const { wrapper } = await mountPresenter();
+    await wrapper.findAll('.cloud')[0].find('.icon-btn').trigger('click');
+    await wrapper.find('.cloud-form .btn.primary').trigger('click');
+    await flushPromises();
+    expect(patchCalls('admin-clouds').find((b) => b.edit)!.edit).toMatchObject({ timerSeconds: 45, timerAuto: false });
   });
 });

@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, nextTick, ref, watch } from 'vue';
 import MarkdownContent from '@/components/MarkdownContent.vue';
-import { buildCloudPayload } from '@/lib/presenter';
+import { MAX_TIMER_SECONDS, TIMER_PRESETS, buildCloudPayload, formatDuration, timerError } from '@/lib/presenter';
 import type { CloudForm, CloudPayload } from '@/shared/types';
 
 const props = defineProps<{ modelValue: CloudForm; editing: boolean }>();
@@ -10,13 +10,35 @@ const emit = defineEmits<{ save: [payload: CloudPayload]; cancel: [] }>();
 const form = computed(() => props.modelValue);
 const formError = ref<string | null>(null);
 const MAX_BODY = 4000;
+// The length is one of the presets or, for anything else, custom seconds typed in.
+const preset = ref(TIMER_PRESETS.includes(props.modelValue.timerSeconds) ? String(props.modelValue.timerSeconds) : 'custom');
+watch(preset, (value) => {
+  if (value !== 'custom') form.value.timerSeconds = Number(value);
+});
 
-function submit() {
+// A timer problem shows in the Timer section, next to the field to fix; anything else at the top of the form. Either way it
+// is brought into view, since Save sits at the bottom of a form that is often taller than the screen.
+const timerProblem = ref<string | null>(null);
+const errorBox = ref<HTMLElement | null>(null);
+const customSeconds = ref<HTMLInputElement | null>(null);
+const timerSection = ref<HTMLElement | null>(null);
+watch(() => [form.value.timerMode, form.value.timerSeconds], () => (timerProblem.value = null));
+
+async function submit() {
+  formError.value = null;
+  timerProblem.value = timerError(form.value);
+  if (timerProblem.value) {
+    await nextTick();
+    if (customSeconds.value) customSeconds.value.focus();
+    else timerSection.value?.scrollIntoView?.({ block: 'nearest' });
+    return;
+  }
   try {
-    formError.value = null;
     emit('save', buildCloudPayload(form.value));
   } catch (e) {
     formError.value = (e as Error).message;
+    await nextTick();
+    errorBox.value?.scrollIntoView?.({ block: 'nearest' });
   }
 }
 </script>
@@ -24,7 +46,7 @@ function submit() {
 <template>
   <div class="card cloud-form" style="margin-bottom: 16px">
     <div class="card-title">{{ editing ? 'Edit cloud' : 'New cloud' }}</div>
-    <div v-if="formError" class="alert error" style="margin-bottom: 12px">{{ formError }}</div>
+    <div v-if="formError" ref="errorBox" class="alert error form-error" role="alert" style="margin-bottom: 12px">{{ formError }}</div>
     <div class="form-grid">
       <label class="field full">
         <span>Type</span>
@@ -83,6 +105,31 @@ function submit() {
       </div>
 
       <label v-if="form.kind !== 'content'" class="check full"><input v-model="form.resultsHidden" type="checkbox" /> Hide results until I show them</label>
+      <fieldset ref="timerSection" class="full timer-field">
+        <legend class="field-label">Timer</legend>
+        <div class="timer-modes">
+          <label class="check"><input v-model="form.timerMode" type="radio" name="timer-mode" value="none" /> None</label>
+          <label class="check"><input v-model="form.timerMode" type="radio" name="timer-mode" value="manual" /> Manual (I start it)</label>
+          <label class="check"><input v-model="form.timerMode" type="radio" name="timer-mode" value="auto" /> Auto-start when the cloud goes live</label>
+        </div>
+        <div v-if="form.timerMode !== 'none'" class="timer-length">
+          <label class="field">
+            <span>Length</span>
+            <select v-model="preset" class="input timer-preset-select">
+              <option v-for="s in TIMER_PRESETS" :key="s" :value="String(s)">{{ formatDuration(s) }}</option>
+              <option value="custom">Custom</option>
+            </select>
+          </label>
+          <label v-if="preset === 'custom'" class="field">
+            <span>Seconds</span>
+            <input
+              ref="customSeconds" v-model.number="form.timerSeconds" class="input timer-custom" type="number" min="1" :max="MAX_TIMER_SECONDS" step="1"
+              :aria-invalid="!!timerProblem" :aria-describedby="timerProblem ? 'timer-error' : undefined"
+            />
+          </label>
+        </div>
+        <div v-if="timerProblem" id="timer-error" class="alert error timer-error" role="alert">{{ timerProblem }}</div>
+      </fieldset>
     </div>
     <div class="row" style="margin-top: 16px">
       <button class="btn primary" @click="submit">Save cloud</button>
@@ -97,5 +144,9 @@ function submit() {
 .field textarea.input { resize: vertical; min-height: 6em; font: inherit; }
 .form-counter { font-size: .8rem; text-align: right; font-variant-numeric: tabular-nums; }
 .form-preview { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px 14px; max-height: 16em; overflow: auto; min-width: 0; }
+.timer-field { border: 0; padding: 0; margin: 0; min-width: 0; display: grid; gap: 8px; }
+.timer-modes { display: flex; flex-wrap: wrap; gap: 6px 18px; }
+.timer-length { display: flex; flex-wrap: wrap; gap: 12px; }
+.timer-error { margin: 0; }
 .form-preview-title { display: block; font-size: .75rem; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; margin-bottom: 6px; }
 </style>

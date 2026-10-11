@@ -3,7 +3,7 @@ import { computed, ref } from 'vue';
 import CloudResults from '@/components/CloudResults.vue';
 import MarkdownContent from '@/components/MarkdownContent.vue';
 import WordModeration from '@/components/presenter/WordModeration.vue';
-import { firstLine, kindName, parseCorrect, parseOptions, phaseText, toPrivateCloud } from '@/lib/presenter';
+import { firstLine, formatDuration, kindName, parseCorrect, parseOptions, phaseText, toPrivateCloud } from '@/lib/presenter';
 import { responsesLabel } from '@/lib/tally';
 import { useOverflows } from '@/composables/useOverflows';
 import type { VotingPhase } from '@/composables/useVotingClock';
@@ -20,6 +20,10 @@ const correctText = computed(() => {
   const options = parseOptions(c);
   return parseCorrect(c).map((i) => options[i]).filter(Boolean).join(', ');
 });
+const presetSeconds = computed(() => props.cloud?.timer_seconds ?? null);
+function startPreset() {
+  if (props.cloud && presetSeconds.value) void props.store.startTimer(props.cloud, presetSeconds.value);
+}
 const isContent = computed(() => props.cloud?.kind === 'content');
 /** The countdown pill: the time left while running, the kind's closed wording once ended, else nothing. */
 const countdown = computed(() => {
@@ -46,6 +50,9 @@ const previewClipped = useOverflows(preview);
         <span v-if="countdown" class="countdown" :class="{ ended: countdown.ended }" role="timer">{{ countdown.text }}</span>
       </div>
 
+      <!-- Offered whenever no countdown runs, after one ended too (as in the rail): pressing it starts the cloud's timer again. -->
+      <button v-if="presetSeconds && phase !== 'running'" class="btn primary stage-timer-preset" @click="startPreset">Start {{ formatDuration(presetSeconds) }} timer</button>
+
       <p v-if="cloud.kind === 'words'" class="stage-meta"><strong>{{ total }}</strong> {{ total === 1 ? 'person has' : 'people have' }} sent words</p>
       <p v-else-if="isQuestion" class="stage-meta"><strong>{{ total }}</strong> {{ responsesLabel(total) }}</p>
 
@@ -70,6 +77,7 @@ const previewClipped = useOverflows(preview);
 <style>
 .stage { flex: 1; min-width: 0; min-height: 0; padding: clamp(18px, 4vw, 48px); overflow: auto; display: flex; flex-direction: column; gap: 14px; }
 .stage .stagehead { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; }
+.stage .stage-timer-preset { align-self: flex-start; }
 .stage .stagehead.content { display: flow-root; }
 .stage .stagehead.content .countdown { float: right; margin: 0 0 12px 24px; }
 .stage-title { min-width: 0; font-size: clamp(1.5rem, 3.2vw, 2.4rem); line-height: 1.15; font-weight: 400; }

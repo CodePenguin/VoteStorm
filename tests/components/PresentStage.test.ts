@@ -174,4 +174,21 @@ describe('PresentStage', () => {
     expect(source).toMatch(/\.stage \{[^}]*min-width: 0[^}]*overflow: auto/);
     expect(source).toMatch(/\.stage-title \{[^}]*min-width: 0/);
   });
+
+  it('offers the cloud\'s own timer on the stage while no timer runs', async () => {
+    const c = makeCloud({ timer_seconds: 120, timer_auto: 0 });
+    const { wrapper, store } = setup(c);
+    await wrapper.find('.stage-timer-preset').trigger('click');
+    expect(store.startTimer).toHaveBeenCalledWith(c, 120);
+    expect(setup(c, { phase: 'running', label: '1:59' }).wrapper.find('.stage-timer-preset').exists()).toBe(false);
+    expect(setup(makeCloud()).wrapper.find('.stage-timer-preset').exists()).toBe(false);
+  });
+
+  it('offers the cloud\'s own timer again after a countdown ended, next to the ended pill, as the rail does', async () => {
+    const c = makeCloud({ timer_seconds: 45, timer_auto: 0 });
+    const { wrapper, store } = setup(c, { phase: 'closed', label: '' });
+    expect(wrapper.find('.countdown.ended').exists()).toBe(true);
+    await wrapper.find('.stage-timer-preset').trigger('click');
+    expect(store.startTimer).toHaveBeenCalledWith(c, 45);
+  });
 });

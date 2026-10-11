@@ -206,6 +206,16 @@ describe('duplicate-storm function', () => {
     expect(await stormTotal()).toBe(1);
   });
 
+  it('copies each cloud\'s timer setting, with no timer running', async () => {
+    await source.call(adminClouds, 'admin-clouds', { httpMethod: 'POST', headers: {}, body: JSON.stringify({ kind: 'content', body: 'Timed', timerSeconds: 300, timerAuto: true }) });
+    await source.call(adminClouds, 'admin-clouds', { httpMethod: 'POST', headers: {}, body: JSON.stringify({ kind: 'words', body: 'Manual', timerSeconds: 30 }) });
+    const { res, copy } = await duplicate();
+    expect(res.statusCode).toBe(200);
+    const data = await detail(copy);
+    expect(data.clouds.map((q) => [q.timer_seconds, q.timer_auto])).toEqual([[null, 0], [null, 0], [300, 1], [30, 0]]);
+    expect(data.clouds.every((q) => q.voting_ms_left === null)).toBe(true);
+  });
+
   it('removes the new Storm again if copying the clouds fails', async () => {
     const db = createDb();
     await db.execute('CREATE TRIGGER no_copies BEFORE INSERT ON clouds WHEN NEW.storm_code != \'' + source.stormCode + '\' BEGIN SELECT RAISE(ABORT, \'boom\'); END');

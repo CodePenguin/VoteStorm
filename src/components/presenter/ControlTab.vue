@@ -4,9 +4,14 @@ import type { AdminSession } from '@/lib/adminRequest';
 import type { PresenterStore } from '@/composables/usePresenter';
 import { parseHexColor } from '@/lib/color';
 import LicenseLimitsList from '@/components/LicenseLimitsList.vue';
+import ImportStormDialog from '@/components/presenter/ImportStormDialog.vue';
+import { parseHiddenWords, toPrivateCloud } from '@/lib/presenter';
+import { resultsCsv } from '@/lib/resultsCsv';
+import { downloadText, fileSlug, readFileText } from '@/lib/download';
+import { MAX_IMPORT_BYTES, buildStormFile, readStormFileText, stormFileText } from '@/lib/stormFile';
 
 const props = defineProps<{ store: PresenterStore }>();
-const emit = defineEmits<{ deleted: []; duplicated: [copy: AdminSession] }>();
+const emit = defineEmits<{ deleted: []; duplicated: [copy: AdminSession]; imported: [] }>();
 
 const DEFAULT_SWATCH = '#0b1120';
 const background = computed(() => props.store.resultsBackground.value);
@@ -34,6 +39,79 @@ function saveColor(value: string) {
 async function duplicate() {
   const copy = await props.store.duplicateStorm();
   if (copy) emit('duplicated', copy);
+}
+
+const fileInput = ref<HTMLInputElement | null>(null);
+const fileError = ref<string | null>(null);
+const pending = ref<{ fileName: string; data: unknown; name: string | null; clouds: number } | null>(null);
+const importing = ref(false);
+const importError = ref<string | null>(null);
+
+const baseName = () => fileSlug(props.store.storm.value?.name, props.store.storm.value?.storm_code ?? '');
+const current = computed(() => ({
+  clouds: props.store.clouds.value.length,
+  votes: props.store.clouds.value.reduce((n, q) => n + (q.kind === 'content' ? 0 : q.tally?.totalVotes || 0), 0),
+}));
+
+function exportJson() {
+  const file = buildStormFile({ name: props.store.storm.value?.name ?? null, resultsBackground: props.store.resultsBackground.value, clouds: props.store.clouds.value });
+  downloadText(`${baseName()}.json`, stormFileText(file), 'application/json');
+}
+
+// The storm column is the Storm's name, or its code when it has none.
+function exportCsv() {
+  const storm = props.store.storm.value;
+  const clouds = props.store.clouds.value.map((q) => ({ ...toPrivateCloud(q), tally: q.tally, hiddenWords: parseHiddenWords(q) }));
+  downloadText(`${baseName()}-results.csv`, resultsCsv(storm?.name || storm?.storm_code || '', clouds), 'text/csv;charset=utf-8');
+}
+
+async function onFile(event: Event) {
+  const input = event.target as HTMLInputElement;
+  const file = input.files?.[0];
+  input.value = ''; // so choosing the same file again still reads it
+  fileError.value = null;
+  if (!file) return;
+  if (file.size > MAX_IMPORT_BYTES) {
+    fileError.value = 'This file is too large to be a Storm file.';
+    return;
+  }
+  let text: string;
+  try {
+    text = await readFileText(file);
+  } catch {
+    fileError.value = 'Could not read that file.';
+    return;
+  }
+  const read = readStormFileText(text);
+  if (read.error !== undefined) {
+    fileError.value = read.error;
+    return;
+  }
+  importError.value = null;
+  pending.value = { fileName: file.name, data: read.data, name: read.value.name, clouds: read.value.clouds.length };
+}
+
+async function confirmImport() {
+  if (!pending.value || importing.value) return;
+  importing.value = true;
+  importError.value = null;
+  const result = await props.store.importStorm(pending.value.data);
+  importing.value = false;
+  if (result.ok) {
+    pending.value = null;
+    emit('imported');
+  } else if (result.error === null) {
+    // The page moved to another Storm while this ran: nothing to report about this one.
+    pending.value = null;
+  } else {
+    // Shown once, in the dialog; the page error is left as it was.
+    importError.value = result.error;
+  }
+}
+
+function cancelImport() {
+  if (importing.value) return;
+  pending.value = null;
 }
 
 function resetColor() {
@@ -88,6 +166,24 @@ function resetColor() {
       </p>
       <LicenseLimitsList :limits="store.license.value.limits" />
     </div>
+
+    <div class="card" style="margin-bottom: 16px">
+      <div class="card-title">Files</div>
+      <div class="toolbar">
+        <button class="btn export-json" @click="exportJson">Export Storm (JSON)</button>
+        <button class="btn import-json" @click="fileInput?.click()">Import from file</button>
+        <input ref="fileInput" class="sr-only" type="file" accept=".json,application/json" tabindex="-1" aria-hidden="true" @change="onFile" />
+        <button class="btn export-csv" @click="exportCsv">Download results (CSV)</button>
+      </div>
+      <div v-if="fileError" class="alert error file-error" role="alert" style="margin-top: 12px">{{ fileError }}</div>
+      <p class="muted" style="font-size: .82rem; margin-top: 12px">
+        Export saves this Storm's clouds and settings, without votes. Importing a file replaces this Storm's clouds, name and background.
+      </p>
+    </div>
+    <ImportStormDialog
+      v-if="pending" :file-name="pending.fileName" :incoming="{ name: pending.name, clouds: pending.clouds }" :current="current"
+      :error="importError" :busy="importing" @confirm="confirmImport" @cancel="cancelImport"
+    />
 
     <div class="card">
       <div class="card-title">Control</div>

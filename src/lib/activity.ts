@@ -35,6 +35,8 @@ export function describeActivity(path: string, method: string, rawBody?: unknown
       return { working: 'Duplicating Storm\u2026', done: 'Storm duplicated' };
     case 'create-storm':
       return { working: 'Creating your Storm\u2026', done: 'Storm created' };
+    case 'admin-import':
+      return { working: 'Importing Storm…', done: 'Storm imported' };
     case 'admin-clouds':
       if (verb === 'DELETE') return { working: 'Deleting cloud\u2026', done: 'Cloud deleted' };
       if (verb === 'POST') return { working: 'Adding cloud\u2026', done: 'Cloud added' };

@@ -62,9 +62,9 @@ export async function handler(event) {
       const now = Date.now();
       await db.batch(
         clouds.map((q) => ({
-          sql: `INSERT INTO clouds (storm_code, order_index, kind, body, options, scale_min, scale_max, multi, results_hidden, answer_shown, correct, display, max_words, hidden_words, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          args: [created.stormCode, q.order_index, q.kind, q.body, q.options, q.scale_min, q.scale_max, q.multi, q.results_hidden, q.answer_shown, q.correct, q.display, q.max_words, q.hidden_words, now],
+          sql: `INSERT INTO clouds (storm_code, order_index, kind, body, options, scale_min, scale_max, multi, results_hidden, answer_shown, correct, display, max_words, hidden_words, timer_seconds, timer_auto, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          args: [created.stormCode, q.order_index, q.kind, q.body, q.options, q.scale_min, q.scale_max, q.multi, q.results_hidden, q.answer_shown, q.correct, q.display, q.max_words, q.hidden_words, q.timer_seconds, q.timer_auto, now],
         })),
         'write',
       );

@@ -177,3 +177,72 @@ describe('usePresenter when the link moves to another Storm mid-request', () => 
     expect(renameRemembered).toHaveBeenCalledWith('AAAAAAAA', 'Mine');
   });
 });
+
+describe('usePresenter importStorm', () => {
+  beforeEach(() => {
+    signedMock.mockReset();
+    renameRemembered.mockReset();
+  });
+
+  it('sends the file signed as admin-import, reloads, and renames the Storm in the recent list', async () => {
+    signedMock.mockImplementation(async (_s: unknown, fn: string, init: RequestInit = {}) => {
+      if (fn === 'admin-storm' && !init.method) {
+        const data = stormData('ABCDEFGH');
+        return { ...data, storm: { ...data.storm, name: 'Imported' } };
+      }
+      return { ok: true };
+    });
+    const store = usePresenter(ref({ stormCode: 'ABCDEFGH', secret: 's' }));
+    const file = { votestorm: 1, name: 'Imported', clouds: [] };
+    expect(await store.importStorm(file)).toEqual({ ok: true });
+    const call = signedMock.mock.calls.find((c) => c[1] === 'admin-import')!;
+    expect(call[2].method).toBe('POST');
+    expect(JSON.parse(call[2].body)).toEqual({ storm: file });
+    expect(store.storm.value?.name).toBe('Imported');
+    expect(renameRemembered).toHaveBeenCalledWith('ABCDEFGH', 'Imported');
+  });
+
+  it('reports the import as done, with the error shown, when only the reload fails', async () => {
+    let reads = 0;
+    signedMock.mockImplementation(async (_s: unknown, fn: string, init: RequestInit = {}) => {
+      if (fn === 'admin-storm' && !init.method && ++reads > 1) throw new Error('offline');
+      return fn === 'admin-import' ? { ok: true } : stormData('ABCDEFGH');
+    });
+    const store = usePresenter(ref({ stormCode: 'ABCDEFGH', secret: 's' }));
+    await store.load();
+    expect(await store.importStorm({})).toEqual({ ok: true });
+    expect(store.error.value).toBeTruthy();
+  });
+
+  it('returns the server\'s reason when the import is refused, leaving the page error alone', async () => {
+    signedMock.mockImplementation(async (_s: unknown, fn: string) => {
+      if (fn === 'admin-import') throw new Error('Cloud 3: refused');
+      return stormData('ABCDEFGH');
+    });
+    const store = usePresenter(ref({ stormCode: 'ABCDEFGH', secret: 's' }));
+    store.error.value = 'an earlier problem';
+    expect(await store.importStorm({})).toEqual({ ok: false, error: 'Cloud 3: refused' });
+    expect(store.error.value).toBe('an earlier problem');
+    expect(renameRemembered).not.toHaveBeenCalled();
+  });
+
+  it('reports no reason when the page moved to another Storm during the import', async () => {
+    for (const outcome of ['refused', 'done']) {
+      let finish!: () => void;
+      signedMock.mockImplementation(async (_s: unknown, fn: string) => {
+        if (fn !== 'admin-import') return stormData('ABCDEFGH');
+        await new Promise<void>((r) => (finish = r));
+        if (outcome === 'refused') throw new Error('Cloud 3: refused');
+        return { ok: true };
+      });
+      const store = usePresenter(ref({ stormCode: 'ABCDEFGH', secret: 's' }));
+      const importing = store.importStorm({});
+      await vi.waitFor(() => expect(finish).toBeTypeOf('function'));
+      store.reset();
+      finish();
+      expect(await importing).toEqual({ ok: false, error: null });
+      expect(store.error.value).toBeNull();
+    }
+    expect(renameRemembered).not.toHaveBeenCalled();
+  });
+});

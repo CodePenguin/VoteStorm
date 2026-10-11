@@ -15,6 +15,8 @@ describe('describeActivity', () => {
     expect(describeActivity('vote', 'POST', '{}')).toEqual({ working: 'Submitting your vote…', done: 'Vote submitted' });
     expect(describeActivity('create-storm', 'POST')?.done).toBe('Storm created');
     expect(describeActivity('admin-clouds', 'POST', '{}')?.done).toBe('Cloud added');
+    expect(describeActivity('admin-import', 'POST', '{}')).not.toBeNull();
+    expect(describeActivity('admin-import', 'POST', '{}')).not.toEqual(describeActivity('unknown-function', 'POST', '{}'));
     expect(describeActivity('admin-clouds', 'DELETE', '{}')?.done).toBe('Cloud deleted');
     expect(patch('admin-clouds', { edit: {} })?.done).toBe('Cloud saved');
     expect(patch('admin-clouds', { action: 'reset' })?.done).toBe('Votes reset');

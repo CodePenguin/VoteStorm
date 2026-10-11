@@ -103,4 +103,17 @@ describe('results key', () => {
     expect((await go({ resultsKey, cloudId: 99999 })).statusCode).toBe(404);
     expect(publishEvent).not.toHaveBeenCalled();
   });
+
+  it('starts a cloud\'s own timer when a results link brings it live, if it starts on its own', async () => {
+    const timed = JSON.parse((await admin.call(clouds, 'admin-clouds', {
+      httpMethod: 'POST', body: JSON.stringify({ kind: 'choice', body: 'Timed', options: ['A', 'B'], timerSeconds: 45, timerAuto: true }),
+    })).body).id;
+    vi.clearAllMocks();
+    expect(JSON.parse((await go({ resultsKey, cloudId: timed })).body).changed).toBe(true);
+    const state = publishEvent.mock.calls.find((c) => c[1] === 'state')[2];
+    expect(state.currentCloud.votingMsLeft).toBeGreaterThan(44000);
+    expect(state.currentCloud.votingMsLeft).toBeLessThanOrEqual(45000);
+    const row = (await createDb().execute({ sql: 'SELECT closes_at FROM clouds WHERE id = ?', args: [timed] })).rows[0];
+    expect(Number(row.closes_at)).toBeGreaterThan(Date.now() + 44000);
+  });
 });

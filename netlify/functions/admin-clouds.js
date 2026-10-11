@@ -61,8 +61,8 @@ export async function handler(event) {
     });
     const orderIndex = orderResult.rows[0].nextIndex;
     const insertResult = await db.execute({
-      sql: `INSERT INTO clouds (storm_code, order_index, kind, body, options, scale_min, scale_max, multi, results_hidden, correct, display, max_words, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      sql: `INSERT INTO clouds (storm_code, order_index, kind, body, options, scale_min, scale_max, multi, results_hidden, correct, display, max_words, timer_seconds, timer_auto, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       args: [
         storm.storm_code,
         orderIndex,
@@ -76,6 +76,8 @@ export async function handler(event) {
         q.correct,
         q.display,
         q.maxWords,
+        q.timerSeconds,
+        q.timerAuto,
         Date.now(),
       ],
     });
@@ -121,7 +123,7 @@ export async function handler(event) {
       const e = bodyData.edit;
       const parsed = normalizeCloudInput(e);
       if (parsed.error) return json(400, { error: parsed.error });
-      const { body, options, scaleMin, scaleMax, multi, correct, display, maxWords } = parsed.value;
+      const { body, options, scaleMin, scaleMax, multi, correct, display, maxWords, timerSeconds, timerAuto } = parsed.value;
 
       // Votes only keep their meaning when the shape of the cloud is unchanged.
       const oldOptions = cloud.options ? JSON.parse(cloud.options) : null;
@@ -145,9 +147,9 @@ export async function handler(event) {
       // Removed words belong to the words the cloud had; a change of kind starts with none (SET reads the old kind).
       await db.execute({
         sql: `UPDATE clouds SET kind = ?, body = ?, options = ?, scale_min = ?, scale_max = ?, multi = ?, correct = ?, display = ?,
-              results_hidden = ?, max_words = ?, answer_shown = CASE WHEN ? IS NULL THEN 0 ELSE answer_shown END,
+              results_hidden = ?, max_words = ?, timer_seconds = ?, timer_auto = ?, answer_shown = CASE WHEN ? IS NULL THEN 0 ELSE answer_shown END,
               hidden_words = CASE WHEN kind <> ? THEN NULL ELSE hidden_words END WHERE id = ? AND storm_code = ?`,
-        args: [e.kind, body, options ? JSON.stringify(options) : null, scaleMin, scaleMax, multi, correct, display, parsed.value.resultsHidden, maxWords, correct, e.kind, cloudId, storm.storm_code],
+        args: [e.kind, body, options ? JSON.stringify(options) : null, scaleMin, scaleMax, multi, correct, display, parsed.value.resultsHidden, maxWords, timerSeconds, timerAuto, correct, e.kind, cloudId, storm.storm_code],
       });
       if (clearing) await db.execute({ sql: 'DELETE FROM votes WHERE cloud_id = ?', args: [cloudId] });
 

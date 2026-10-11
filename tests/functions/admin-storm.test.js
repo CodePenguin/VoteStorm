@@ -265,6 +265,50 @@ describe('admin-storm function', () => {
     const live = () => patch({ status: 'active', currentCloudId: cloudId });
     const lastState = () => publishEvent.mock.calls.filter((c) => c[1] === 'state').at(-1)[2];
 
+    const addTimed = async (fields) =>
+      JSON.parse((await callClouds({ httpMethod: 'POST', body: JSON.stringify({ kind: 'choice', body: 'Timed', options: ['X', 'Y'], ...fields }) })).body).id;
+    const closesAt = async (id) => (await createDb().execute({ sql: 'SELECT closes_at FROM clouds WHERE id = ?', args: [id] })).rows[0].closes_at;
+
+    it('starts a cloud\'s own timer when it comes live, if it is set to start on its own, and tells every screen', async () => {
+      const timed = await addTimed({ timerSeconds: 90, timerAuto: true });
+      await live();
+      vi.clearAllMocks();
+      const before = Date.now();
+      expect((await patch({ status: 'active', currentCloudId: timed })).statusCode).toBe(200);
+      const at = Number(await closesAt(timed));
+      expect(at).toBeGreaterThanOrEqual(before + 90000);
+      expect(at).toBeLessThanOrEqual(Date.now() + 90000);
+      const left = lastState().currentCloud.votingMsLeft;
+      expect(left).toBeGreaterThan(89000);
+      expect(left).toBeLessThanOrEqual(90000);
+    });
+
+    it('brings a cloud with a manual timer live open, with no countdown', async () => {
+      const timed = await addTimed({ timerSeconds: 90 });
+      await patch({ status: 'active', currentCloudId: timed });
+      expect(await closesAt(timed)).toBeNull();
+      expect(lastState().currentCloud.votingMsLeft).toBeNull();
+    });
+
+    it('does not restart anything when the live cloud is selected again', async () => {
+      const timed = await addTimed({ timerSeconds: 90, timerAuto: true });
+      await patch({ status: 'active', currentCloudId: timed });
+      await patch({ cloudId: timed, votingLocked: true });
+      const locked = Number(await closesAt(timed));
+      await patch({ status: 'active', currentCloudId: timed });
+      expect(Number(await closesAt(timed))).toBe(locked);
+      expect(lastState().currentCloud.votingMsLeft).toBe(0);
+    });
+
+    it('starts the timer afresh each time the cloud comes back live', async () => {
+      const timed = await addTimed({ timerSeconds: 90, timerAuto: true });
+      await patch({ status: 'active', currentCloudId: timed });
+      await patch({ cloudId: timed, votingLocked: true });
+      await live();
+      await patch({ status: 'active', currentCloudId: timed });
+      expect(lastState().currentCloud.votingMsLeft).toBeGreaterThan(89000);
+    });
+
     it('starts open, with no timer', async () => {
       await live();
       expect((await row()).closes_at).toBeNull();

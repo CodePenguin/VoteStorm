@@ -3,6 +3,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { mount } from '@vue/test-utils';
 import PresentControls from '@/components/presenter/PresentControls.vue';
+import { timerNote } from '@/lib/presenter';
 import { makeCloud, makeStore } from '../helpers/presentFixtures';
 import type { AdminCloud } from '@/shared/types';
 import type { VotingPhase } from '@/composables/useVotingClock';
@@ -184,5 +185,26 @@ describe('PresentControls', () => {
     // One line per cloud in the rail (checked in a browser): the row does not wrap, and Copy link shrinks to an icon.
     expect(src).not.toMatch(/\.rail \.cloud-list \.li \{[^}]*flex-wrap: wrap/);
     expect(src).toMatch(/\.rail \.cloud-list \.copy-icon \{ display: block; \}/);
+  });
+
+  it('offers the cloud\'s own timer first when it has one and no timer is running', async () => {
+    const c = makeCloud({ timer_seconds: 120, timer_auto: 0 });
+    const { wrapper, store } = setup(c);
+    const preset = wrapper.find('.timer-preset');
+    expect(preset.element.compareDocumentPosition(wrapper.find('.timer-chips-row').element) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    await preset.trigger('click');
+    expect(store.startTimer).toHaveBeenCalledWith(c, 120);
+    expect(setup(c, { phase: 'running', label: '1:00' }).wrapper.find('.timer-preset').exists()).toBe(false);
+    expect(setup(makeCloud()).wrapper.find('.timer-preset').exists()).toBe(false);
+  });
+
+  it('notes each cloud\'s timer in the cloud list', () => {
+    const clouds = [makeCloud({ id: 301, timer_seconds: 120, timer_auto: 1 }), makeCloud({ id: 302 })];
+    const { wrapper } = setup(clouds[0], { clouds });
+    expect(wrapper.findAll('.cloud-list .li').map((li) => li.find('.li-timer').exists())).toEqual([true, false]);
+    expect(wrapper.find('.cloud-list .li-timer').text()).toContain(timerNote(clouds[0])!);
+    // Its context for screen readers, and its place under the title rather than beside it.
+    expect(wrapper.find('.cloud-list .li-timer .sr-only').exists()).toBe(true);
+    expect(wrapper.find('.cloud-list .li-main .li-text + .li-timer').exists()).toBe(true);
   });
 });

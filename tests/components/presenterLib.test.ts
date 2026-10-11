@@ -1,14 +1,20 @@
 import { describe, it, expect } from 'vitest';
-import { blankForm, buildCloudPayload, firstLine, formFromCloud, kindLabel, parseHiddenWords, phaseText, statusLabel, toPrivateCloud } from '@/lib/presenter';
+import { MAX_VOTING_SECONDS } from '../../lib/cloud.js';
+import { MAX_TIMER_SECONDS, blankForm, buildCloudPayload, firstLine, formatDuration, formFromCloud, kindLabel, parseHiddenWords, phaseText, statusLabel, timerNote, toPrivateCloud } from '@/lib/presenter';
 import type { AdminCloud } from '@/shared/types';
 
 const row: AdminCloud = {
   id: 3, storm_code: 'R', order_index: 0, kind: 'choice', body: 'Pick', options: JSON.stringify(['Red', 'Green', 'Blue']),
   scale_min: null, scale_max: null, multi: 1, results_hidden: 1, answer_shown: 0, correct: JSON.stringify([1, 2]), display: 'donut',
+  timer_seconds: null, timer_auto: 0,
   tally: { counts: [0, 0, 0], totalVotes: 0 },
 };
 
 describe('presenter helpers', () => {
+  it('offers the same longest timer the server takes', () => {
+    expect(MAX_TIMER_SECONDS).toBe(MAX_VOTING_SECONDS);
+  });
+
   it('shows a markdown body as one plain line for the Present list', () => {
     expect(firstLine('**great team**?')).toBe('great team?');
     expect(firstLine('# A well-known [site](https://example.com)\n\nmore')).toBe('A well-known site');
@@ -37,10 +43,15 @@ describe('presenter helpers', () => {
     });
   });
 
+  it('sends null for an emptied scale end, so the server takes its default rather than refusing it', () => {
+    const payload = buildCloudPayload({ ...blankForm(), kind: 'rating', body: 'Rate', scaleMin: '' as unknown as number, scaleMax: 7 });
+    expect(payload).toMatchObject({ scaleMin: null, scaleMax: 7 });
+  });
+
   it('round-trips a stored cloud into the edit form', () => {
     expect(formFromCloud(row)).toEqual({
       kind: 'choice', body: 'Pick', optionsText: 'Red, Green, Blue', correctText: 'Green, Blue', display: 'donut',
-      resultsHidden: true, multi: true, scaleMin: 1, scaleMax: 5, maxWords: 3,
+      resultsHidden: true, multi: true, scaleMin: 1, scaleMax: 5, maxWords: 3, timerMode: 'none', timerSeconds: 60,
     });
   });
 
@@ -85,5 +96,29 @@ describe('presenter helpers', () => {
     expect(statusLabel('active')).toBe('Live');
     expect(statusLabel('lobby')).toBe('Lobby');
     expect(statusLabel('closed')).toBe('Closed');
+  });
+});
+
+describe('cloud timer helpers', () => {
+  it('adds the timer to any kind of payload only when one is set, and checks its length', () => {
+    expect(buildCloudPayload({ ...blankForm(), kind: 'content', body: 'C', timerMode: 'auto', timerSeconds: 120 })).toEqual({ kind: 'content', body: 'C', timerSeconds: 120, timerAuto: true });
+    expect(buildCloudPayload({ ...blankForm(), kind: 'rating', body: 'R', timerMode: 'manual', timerSeconds: 30 })).toMatchObject({ timerSeconds: 30, timerAuto: false });
+    expect(buildCloudPayload({ ...blankForm(), kind: 'content', body: 'C', timerMode: 'none', timerSeconds: 30 })).toEqual({ kind: 'content', body: 'C' });
+    for (const bad of [0, 3601, 2.5, '' as unknown as number]) {
+      expect(() => buildCloudPayload({ ...blankForm(), kind: 'content', body: 'C', timerMode: 'manual', timerSeconds: bad })).toThrow(/3600/);
+    }
+  });
+
+  it('reads a stored timer into the form', () => {
+    expect(formFromCloud({ ...row, timer_seconds: 120, timer_auto: 1 })).toMatchObject({ timerMode: 'auto', timerSeconds: 120 });
+    expect(formFromCloud({ ...row, timer_seconds: 45, timer_auto: 0 })).toMatchObject({ timerMode: 'manual', timerSeconds: 45 });
+    expect(formFromCloud(row)).toMatchObject({ timerMode: 'none', timerSeconds: 60 });
+  });
+
+  it('writes durations and the timer note compactly', () => {
+    expect([15, 60, 90, 120, 300, 3600].map(formatDuration)).toEqual(['15s', '1m', '1m 30s', '2m', '5m', '60m']);
+    expect(timerNote({ timer_seconds: 120, timer_auto: 1 } as AdminCloud)).toBe('2m, auto');
+    expect(timerNote({ timer_seconds: 45, timer_auto: 0 } as AdminCloud)).toBe('45s');
+    expect(timerNote({ timer_seconds: null, timer_auto: 0 } as AdminCloud)).toBeNull();
   });
 });

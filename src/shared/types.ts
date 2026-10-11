@@ -76,6 +76,10 @@ export interface AdminCloud {
   display: DisplayType | null;
   max_words: number | null;
   hidden_words: string | null;
+  /** The cloud's own timer length in seconds, or null for none. */
+  timer_seconds: number | null;
+  /** 1 when that timer starts by itself as the cloud comes live. */
+  timer_auto: number;
   closes_at?: number | null;
   /** Same meaning as Cloud.votingMsLeft, as of when the presenter's page last loaded. */
   voting_ms_left?: number | null;
@@ -115,6 +119,8 @@ export interface AdminStormData {
   license: LicenseSummary;
 }
 
+export type TimerMode = 'none' | 'manual' | 'auto';
+
 export interface CloudForm {
   kind: CloudKind;
   body: string;
@@ -126,6 +132,8 @@ export interface CloudForm {
   scaleMin: number;
   scaleMax: number;
   maxWords: number;
+  timerMode: TimerMode;
+  timerSeconds: number;
 }
 
 export interface CloudPayload {
@@ -137,6 +145,9 @@ export interface CloudPayload {
   multi?: boolean;
   display?: DisplayType;
   correct?: number[];
-  scaleMin?: number;
-  scaleMax?: number;
+  /** null takes the server's default (an emptied field). */
+  scaleMin?: number | null;
+  scaleMax?: number | null;
+  timerSeconds?: number;
+  timerAuto?: boolean;
 }

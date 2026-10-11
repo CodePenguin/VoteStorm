@@ -2,8 +2,13 @@ import type { AdminCloud, Cloud, CloudForm, CloudKind, CloudPayload, StormStatus
 import { plainLine } from '@/lib/markdown';
 import type { VotingPhase } from '@/composables/useVotingClock';
 
+/** The timer lengths offered first, in seconds; anything else is typed in as custom seconds. */
+export const TIMER_PRESETS = [15, 30, 60, 120, 300];
+/** The longest timer the server takes (MAX_VOTING_SECONDS in lib/cloud.js). */
+export const MAX_TIMER_SECONDS = 3600;
+
 export function blankForm(): CloudForm {
-  return { kind: 'choice', body: '', optionsText: '', correctText: '', display: 'bars', resultsHidden: false, multi: false, scaleMin: 1, scaleMax: 5, maxWords: 3 };
+  return { kind: 'choice', body: '', optionsText: '', correctText: '', display: 'bars', resultsHidden: false, multi: false, scaleMin: 1, scaleMax: 5, maxWords: 3, timerMode: 'none', timerSeconds: 60 };
 }
 
 export function parseHiddenWords(q: AdminCloud): string[] {
@@ -31,11 +36,12 @@ export function formFromCloud(q: AdminCloud): CloudForm {
     scaleMin: q.scale_min ?? 1,
     scaleMax: q.scale_max ?? 5,
     maxWords: q.max_words ?? 3,
+    timerMode: q.timer_seconds ? (q.timer_auto ? 'auto' : 'manual') : 'none',
+    timerSeconds: q.timer_seconds || 60,
   };
 }
 
-/** Turns the form into an API payload; correct answers are typed as option text and mapped to indexes. */
-export function buildCloudPayload(f: CloudForm): CloudPayload {
+function kindPayload(f: CloudForm): CloudPayload {
   if (f.kind === 'content') return { kind: 'content', body: f.body };
   // An emptied number field gives '', which the server would refuse: fall back to the default.
   if (f.kind === 'words') return { kind: 'words', body: f.body, maxWords: Number(f.maxWords) || 3, resultsHidden: !!f.resultsHidden };
@@ -51,10 +57,45 @@ export function buildCloudPayload(f: CloudForm): CloudPayload {
     if (missing.length) throw new Error(`Correct answer "${missing[0]}" is not one of the options`);
     if (wanted.length) payload.correct = wanted.map((w) => lower.indexOf(w.toLowerCase()));
   } else {
-    payload.scaleMin = f.scaleMin;
-    payload.scaleMax = f.scaleMax;
+    // An emptied end sends null, which takes the server's default; any other non-whole number is refused there.
+    payload.scaleMin = typeof f.scaleMin === 'number' ? f.scaleMin : null;
+    payload.scaleMax = typeof f.scaleMax === 'number' ? f.scaleMax : null;
   }
   return payload;
+}
+
+/** What is wrong with the form's timer, or null when it is fine (or there is none). */
+export function timerError(f: CloudForm): string | null {
+  if (f.timerMode === 'none') return null;
+  const seconds = Number(f.timerSeconds);
+  return Number.isInteger(seconds) && seconds >= 1 && seconds <= MAX_TIMER_SECONDS ? null : `The timer must be a whole number of seconds from 1 to ${MAX_TIMER_SECONDS}`;
+}
+
+/** Turns the form into an API payload; correct answers are typed as option text and mapped to indexes. A timer is only sent when set. */
+export function buildCloudPayload(f: CloudForm): CloudPayload {
+  const payload = kindPayload(f);
+  const badTimer = timerError(f);
+  if (badTimer) throw new Error(badTimer);
+  if (f.timerMode !== 'none') {
+    const seconds = Number(f.timerSeconds);
+    payload.timerSeconds = seconds;
+    payload.timerAuto = f.timerMode === 'auto';
+  }
+  return payload;
+}
+
+/** A length of time as people say it: 15s, 1m, 1m 30s. */
+export function formatDuration(seconds: number): string {
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  if (!m) return `${s}s`;
+  return s ? `${m}m ${s}s` : `${m}m`;
+}
+
+/** A cloud's own timer in a few characters ("2m, auto"), or null when it has none. */
+export function timerNote(q: AdminCloud): string | null {
+  if (!q.timer_seconds) return null;
+  return `${formatDuration(q.timer_seconds)}${q.timer_auto ? ', auto' : ''}`;
 }
 
 /** The presenter always sees the counts and correct answer, even while they are hidden from the audience. */

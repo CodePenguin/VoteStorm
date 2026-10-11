@@ -7,6 +7,9 @@ import { resultsUrl } from '@/lib/fragment';
 import { renameRemembered } from '@/lib/recentStorms';
 import type { AdminCloud, AdminStorm, AdminStormData, LicenseSummary, CloudPayload, Tally, VisibleTally } from '@/shared/types';
 
+/** How an import ended: ok, or refused with the reason (null when the page moved to another Storm meanwhile). */
+export type ImportResult = { ok: true } | { ok: false; error: string | null };
+
 export interface PresenterOptions {
   confirm?: (message: string) => boolean;
 }
@@ -161,6 +164,32 @@ export function usePresenter(session: Ref<AdminSession>, options: PresenterOptio
     }
   }
 
+  /**
+   * Replaces this Storm's clouds, name and background with a Storm file's (the server checks it again). A refusal is
+   * returned, not shown as the page error, so the caller shows it where the import was asked for. error is null when
+   * the page moved to another Storm meanwhile: there is nothing to report for this one.
+   */
+  async function importStorm(file: unknown): Promise<ImportResult> {
+    // The import is one step and the reload another: if only the reload fails, the import still happened (ok, with the page error shown).
+    const started = generation;
+    try {
+      await signed('admin-import', { method: 'POST', body: JSON.stringify({ storm: file }) });
+    } catch (e) {
+      return { ok: false, error: started === generation ? message(e) : null };
+    }
+    if (started !== generation) return { ok: false, error: null };
+    error.value = null;
+    try {
+      await load();
+    } catch (e) {
+      if (started === generation) error.value = message(e);
+      return { ok: true };
+    }
+    if (started !== generation) return { ok: false, error: null };
+    renameRemembered(session.value.stormCode, storm.value?.name ?? null);
+    return { ok: true };
+  }
+
   /** Names the Storm (empty clears the name). The list of recent Storms on this device follows. */
   async function setName(name: string) {
     const clean = name.trim();
@@ -207,7 +236,7 @@ export function usePresenter(session: Ref<AdminSession>, options: PresenterOptio
   return {
     storm, clouds, showConnect, resultsBackground, resultsKey, license, error, copiedCloud,
     currentQ, currentIndex,
-    load, reset, safeLoad, onTally, canStep, stepCloud, activate, swap, saveCloud, deleteStorm, duplicateStorm, setName, setConnect, setResultsBackground, lockVoting, clearTimer, startTimer, addTime, hideWord, showWord, copyCloudLink, cloudLink,
+    load, reset, safeLoad, onTally, canStep, stepCloud, activate, swap, saveCloud, deleteStorm, duplicateStorm, importStorm, setName, setConnect, setResultsBackground, lockVoting, clearTimer, startTimer, addTime, hideWord, showWord, copyCloudLink, cloudLink,
     setCloudFlag: (flags: Record<string, unknown>) => act(() => patchStorm(flags)),
     resetCloud: (cloudId: number) => act(() => patchCloud({ cloudId, action: 'reset' })),
     resetStorm: () => act(() => patchStorm({ action: 'reset' })),
