@@ -208,6 +208,15 @@ describe('admin-clouds function', () => {
     expect(Number(storm.last_activity_at)).toBeGreaterThan(Date.now() - 60000);
   });
 
+  it('answers 400, not 502, when PATCH or DELETE has no usable cloudId', async () => {
+    for (const method of ['PATCH', 'DELETE']) {
+      for (const payload of [{}, { cloudId: null }, { cloudId: '' }, { cloudId: 'abc' }, { cloudId: 1.5 }]) {
+        const res = await call({ httpMethod: method, body: JSON.stringify(payload) });
+        expect(res.statusCode, `${method} ${JSON.stringify(payload)}`).toBe(400);
+      }
+    }
+  });
+
   it('bumps last_activity_at to now on PATCH (edit cloud)', async () => {
     const db = createDb();
     const createRes = await call({

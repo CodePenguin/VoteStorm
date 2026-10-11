@@ -9,6 +9,9 @@ import { cleanWord, parseHiddenWords } from '../../lib/words.js';
 import { rateLimitByIp } from '../../lib/rateLimit.js';
 import { json } from '../../lib/http.js';
 
+// A missing or malformed id would reach the database as an undefined argument and come back as a 502.
+const validCloudId = (v) => (typeof v === 'number' || (typeof v === 'string' && v.trim() !== '')) && Number.isInteger(Number(v));
+
 export async function handler(event) {
   const db = createDb();
   await initSchema(db);
@@ -81,6 +84,7 @@ export async function handler(event) {
 
   if (event.httpMethod === 'PATCH') {
     const { cloudId, action } = bodyData;
+    if (!validCloudId(cloudId)) return json(400, { error: 'Send the cloud to change' });
 
     const ownedResult = await db.execute({
       sql: 'SELECT * FROM clouds WHERE id = ? AND storm_code = ?',
@@ -184,6 +188,7 @@ export async function handler(event) {
 
   if (event.httpMethod === 'DELETE') {
     const { cloudId } = bodyData;
+    if (!validCloudId(cloudId)) return json(400, { error: 'Send the cloud to delete' });
 
     const ownedResult = await db.execute({
       sql: 'SELECT * FROM clouds WHERE id = ? AND storm_code = ?',
