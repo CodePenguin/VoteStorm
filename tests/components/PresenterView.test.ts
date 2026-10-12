@@ -150,10 +150,9 @@ describe('PresenterView', () => {
     expect(wrapper.find('.tabs').text()).toContain('Clouds (2)');
   });
 
-  it('Present mode shows the live results and controls, remembers the mode, and Next advances the cloud', async () => {
+  it('Present mode shows the live results and controls, and Next advances the cloud', async () => {
     const { wrapper } = await mountPresenter();
     await wrapper.findAll('.seg button')[1].trigger('click');
-    expect(localStorage.getItem('votestorm_mode')).toBe('present');
     expect(stage(wrapper).text()).toContain('Cloud 1');
     expect(stage(wrapper).findAll('.sbar')).toHaveLength(2);
     const next = dock(wrapper).find('.present-step .btn.primary');
@@ -165,11 +164,14 @@ describe('PresenterView', () => {
     expect(dock(wrapper).findAll('.cloud-list .li')[1].classes()).toContain('live');
   });
 
-  it('opens in Present mode when that was the last mode used', async () => {
-    localStorage.setItem('votestorm_mode', 'present');
+  it('always opens in the editor, and does not remember Present from earlier visits', async () => {
+    const first = await mountPresenter();
+    await first.wrapper.findAll('.seg button')[1].trigger('click');
+    expect(first.wrapper.find('.present-stage').exists()).toBe(true);
+    first.wrapper.unmount();
     const { wrapper } = await mountPresenter();
-    expect(wrapper.find('.present-stage').exists()).toBe(true);
-    expect(stage(wrapper).text()).toContain('Cloud 1');
+    expect(wrapper.find('.present-stage').exists()).toBe(false);
+    expect(wrapper.find('.seg button.on').text()).toBe('Edit');
   });
 
   it('hides the page header only in Present mode, and Exit returns to the editor on the Clouds tab', async () => {
@@ -187,7 +189,6 @@ describe('PresenterView', () => {
     expect(wrapper.find('.seg button.on').text()).toBe('Edit');
     expect(wrapper.find('.tab.on').text()).toContain('Clouds');
     expect(router.currentRoute.value.hash).toBe(`#k=${SECRET}&t=clouds`);
-    expect(localStorage.getItem('votestorm_mode')).toBe('edit');
   });
 
   it('Escape leaves Present mode for the editor', async () => {
@@ -207,7 +208,6 @@ describe('PresenterView', () => {
     expect(back.element.closest('.section-head')).not.toBeNull();
     await back.trigger('click');
     await flushPromises();
-    expect(localStorage.getItem('votestorm_mode')).toBe('present');
     expect(wrapper.find('.app-header').exists()).toBe(false);
     expect(stage(wrapper).text()).toContain('Cloud 1');
     expect(dock(wrapper).text()).toContain('Cloud 1 of 2');

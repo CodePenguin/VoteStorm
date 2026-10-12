@@ -33,15 +33,8 @@ const session = computed(() => ({ stormCode: stormCode.value, secret: secret.val
 const hasSession = computed(() => !!stormCode.value && !!secret.value);
 const store = usePresenter(session);
 
-function readMode(): 'edit' | 'present' {
-  try {
-    return localStorage.getItem('votestorm_mode') === 'present' ? 'present' : 'edit';
-  } catch {
-    return 'edit';
-  }
-}
-
-const mode = ref<'edit' | 'present'>(readMode());
+// Present mode is never remembered: the page always opens in the editor.
+const mode = ref<'edit' | 'present'>('edit');
 const hashTab = readFragment(route.hash).get('t') as Tab;
 const tab = ref<Tab>(TABS.includes(hashTab) ? hashTab : 'clouds');
 const showShare = ref(false);
@@ -66,11 +59,6 @@ let ably: Ably.Realtime | null = null;
 function setMode(next: 'edit' | 'present') {
   mode.value = next;
   if (next === 'present') showForm.value = false;
-  try {
-    localStorage.setItem('votestorm_mode', next);
-  } catch {
-    /* storage unavailable */
-  }
 }
 
 function exitPresent() {
