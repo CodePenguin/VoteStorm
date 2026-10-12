@@ -3,6 +3,7 @@ import { computed, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { ApiError } from '@/api';
 import AccountChip from '@/components/AccountChip.vue';
+import PairDialog from '@/components/PairDialog.vue';
 import { useLicense } from '@/composables/useLicense';
 import { signedApi } from '@/lib/adminRequest';
 import { deleteLicensedStorm, listLicensedStorms, reclaimStorm } from '@/lib/licenseStorms';
@@ -27,6 +28,8 @@ const checking = ref(rows.value.length > 0);
 async function refresh(row: Row) {
   try {
     const data = await signedApi<AdminStormData>({ stormCode: row.stormCode, secret: row.secret }, 'admin-storm');
+    // The list was reloaded (a sync) while this check ran: the row it was for is gone and the new one has its own check.
+    if (!rows.value.includes(row)) return;
     const last = Number(data.storm.last_activity_at ?? data.storm.created_at ?? Date.now());
     Object.assign(row, {
       name: data.storm.name ?? null,
@@ -38,6 +41,8 @@ async function refresh(row: Row) {
     });
     renameRemembered(row.stormCode, row.name);
   } catch (err) {
+    // As above; above all, a sync may have brought a newer secret for this Storm, which a 401 for the old one must not forget.
+    if (!rows.value.includes(row)) return;
     // A clock_skew 401 follows a valid signature, so that Storm exists and its secret must be kept.
     if (err instanceof ApiError && err.status === 401 && err.code !== 'clock_skew') {
       // The Storm has expired or been deleted, so there is nothing to open any more.
@@ -49,21 +54,37 @@ async function refresh(row: Row) {
   }
 }
 
-onMounted(async () => {
-  const queue = [...rows.value];
+// Checks each row's Storm, four at a time. Only the latest run clears `checking`.
+let checkRun = 0;
+async function checkRows(list: Row[]) {
+  const run = ++checkRun;
+  checking.value = list.length > 0;
+  const queue = [...list];
   await Promise.all(
     Array.from({ length: 4 }, async () => {
       for (let row = queue.shift(); row; row = queue.shift()) await refresh(row);
     }),
   );
-  checking.value = false;
-});
+  if (run === checkRun) checking.value = false;
+}
+
+onMounted(() => checkRows(rows.value));
 
 const open = (row: Row) => router.push(presenterLocation(row.stormCode, row.secret));
 
-function forget(row: Row) {
-  forgetStorm(row.stormCode);
-  rows.value = rows.value.filter((r) => r.stormCode !== row.stormCode);
+const pairing = ref(false);
+// Another device's Storms were merged into this browser's list: show the new list and check what arrived.
+function onMerged() {
+  rows.value = loadRecent();
+  void checkRows(rows.value);
+}
+// The dialog can be closed after this device merged but before it said so (the joiner's last message was still going out), so the
+// saved list is compared with the page's on close, and reloaded if they differ.
+const sameList = (a: RecentStorm[], b: RecentStorm[]) =>
+  a.length === b.length && a.every((e, i) => e.stormCode === b[i].stormCode && e.secret === b[i].secret);
+function onPairClose() {
+  pairing.value = false;
+  if (!sameList(loadRecent(), rows.value)) onMerged();
 }
 
 const license = useLicense();
@@ -93,6 +114,8 @@ watch(
     }
   },
 );
+
+const licensed = computed(() => license.summary.value?.tier === 'licensed');
 
 const titleFor = (s: { name: string | null; stormCode: string }) => s.name || `Storm ${formatStormCode(s.stormCode)}`;
 
@@ -156,7 +179,6 @@ async function removeElsewhere(s: LicensedStorm) {
         </div>
         <div class="storm-actions">
           <button class="btn primary sm" @click="open(row)">Open</button>
-          <button class="btn sm" :aria-label="`Forget ${row.name || 'Storm ' + formatStormCode(row.stormCode)}`" title="Remove from this list. The Storm itself is not deleted." @click="forget(row)">Forget</button>
         </div>
       </li>
     </ul>
@@ -182,6 +204,18 @@ async function removeElsewhere(s: LicensedStorm) {
         </li>
       </ul>
     </section>
+
+    <!-- Syncing is a licensed feature (the token for it is only given under a license), shown like the group above: only when licensed. -->
+    <section v-if="licensed" class="card pair-card" aria-labelledby="pair-title">
+      <h2 id="pair-title">Sync your Storms</h2>
+      <p class="muted">
+        Keep the same list of Storms on your other devices. Open this on both devices; one shows a code and the other types it.
+        The list travels encrypted and is never stored on a server.
+      </p>
+      <button type="button" class="btn pair-open" @click="pairing = true">Sync with another device</button>
+    </section>
+
+    <PairDialog v-if="pairing" @close="onPairClose" @merged="onMerged" />
   </main>
 </template>
 
@@ -198,6 +232,9 @@ async function removeElsewhere(s: LicensedStorm) {
 .storm-actions { display: flex; gap: 8px; flex: none; }
 .elsewhere { margin-top: 32px; }
 .elsewhere h2 { font-size: 1.15rem; }
+.pair-card { margin-top: 32px; }
+.pair-card h2 { font-size: 1.15rem; }
+.pair-card p { margin: 8px 0 14px; }
 .row-error { margin-top: 8px; font-size: .85rem; }
 @media (max-width: 520px) { .storm-row { flex-direction: column; align-items: stretch; } .storm-actions { justify-content: flex-end; } }
 </style>

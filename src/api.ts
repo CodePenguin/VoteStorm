@@ -6,17 +6,27 @@ export class ApiError extends Error {
   status: number;
   code?: string;
   serverTime?: number;
+  /** Seconds to wait, from a 429's Retry-After header, when the server sent one. */
+  retryAfter?: number;
 
-  constructor(message: string, status: number, code?: string, serverTime?: number) {
+  constructor(message: string, status: number, code?: string, serverTime?: number, retryAfter?: number) {
     super(message);
     this.status = status;
     this.code = code;
     this.serverTime = serverTime;
+    this.retryAfter = retryAfter;
   }
 }
 
+/** Retry-After as a whole number of seconds (the form the functions send), or undefined. */
+function retryAfterSeconds(res: Response): number | undefined {
+  const raw = res.headers?.get?.('retry-after');
+  const n = raw === null || raw === undefined || raw.trim() === '' ? NaN : Number(raw);
+  return Number.isFinite(n) && n >= 0 ? n : undefined;
+}
+
 // Only the presenter-side functions get the license; the audience never needs it.
-const LICENSED_PATHS = ['create-storm', 'duplicate-storm', 'admin-storm', 'admin-clouds', 'admin-import', 'license-status', 'license-storms'];
+const LICENSED_PATHS = ['create-storm', 'duplicate-storm', 'admin-storm', 'admin-clouds', 'admin-import', 'license-status', 'license-storms', 'pair-token'];
 const usesLicense = (path: string) => LICENSED_PATHS.some((p) => path === p || path.startsWith(p + '?'));
 
 export type ApiOptions = RequestInit & {
@@ -37,7 +47,7 @@ export async function api<T = unknown>(path: string, options: ApiOptions = {}): 
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
       const body = data as { error?: string; code?: string; serverTime?: number };
-      throw new ApiError(body.error || `Request failed: ${res.status}`, res.status, body.code, body.serverTime);
+      throw new ApiError(body.error || `Request failed: ${res.status}`, res.status, body.code, body.serverTime, retryAfterSeconds(res));
     }
     finish?.({ ok: true });
     return data as T;

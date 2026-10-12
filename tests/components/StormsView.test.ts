@@ -28,6 +28,21 @@ vi.mock('@/lib/licenseStorms', () => ({
 const signedMock = vi.fn();
 vi.mock('@/lib/adminRequest', () => ({ signedApi: (...a: unknown[]) => signedMock(...a) }));
 
+vi.mock('@/components/PairDialog.vue', async () => {
+  const { defineComponent, h } = await import('vue');
+  return {
+    default: defineComponent({
+      emits: ['merged', 'close'],
+      setup(_props, { emit }) {
+        return () => h('div', { class: 'pair-stub' }, [
+          h('button', { class: 'stub-merged', onClick: () => emit('merged') }, 'merged'),
+          h('button', { class: 'stub-close', onClick: () => emit('close') }, 'close'),
+        ]);
+      },
+    }),
+  };
+});
+
 import StormsView from '@/views/StormsView.vue';
 
 const detail = (over: Record<string, unknown> = {}, clouds = 2) => ({
@@ -80,7 +95,11 @@ describe('StormsView', () => {
     expect(rows[0].text()).toContain('expires in');
     expect(rows[1].find('.badge').text()).toBe('closed');
     expect(rows[1].text()).toContain('1 cloud');
-    expect(rows[1].find('.btn:not(.primary)').attributes('aria-label')).toBe('Forget Storm BBBB 2222');
+    for (const row of rows) {
+      const buttons = row.findAll('button');
+      expect(buttons).toHaveLength(1);
+      expect(buttons[0].classes()).toContain('primary');
+    }
     expect(loadRecent().find((e) => e.stormCode === 'AAAA1111')!.name).toBe('Town hall');
     expect(loadRecent().map((e) => e.stormCode)).toEqual(['AAAA1111', 'BBBB2222']);
   });
@@ -120,16 +139,120 @@ describe('StormsView', () => {
     expect(loadRecent().map((e) => [e.stormCode, e.secret])).toEqual([['SKEW0001', 'SKEW']]);
   });
 
-  it('forgets a Storm from the list without deleting it', async () => {
+});
+
+describe('StormsView, Sync your Storms', () => {
+  const licensed = { tier: 'licensed', name: 'Acme', expiresAt: null, limits: { stormInactivityHours: 24 } };
+  beforeEach(() => {
+    localStorage.clear();
+    signedMock.mockReset();
+    apiMock.mockReset();
+    // A fresh object per call, as the real api parses each response.
+    apiMock.mockImplementation(async () => ({ ...licensed }));
+    listMock.mockReset();
+    listMock.mockResolvedValue([]);
+  });
+
+  it('shows no Sync card under the anonymous tier, since syncing needs a license', async () => {
+    apiMock.mockImplementation(async () => ({ tier: 'anonymous', name: null, expiresAt: null, limits: { stormInactivityHours: 24 } }));
     rememberStorm({ stormCode: 'AAAA1111', secret: 'SEC-A' });
     signedMock.mockResolvedValue(detail());
     const { wrapper } = await mountStorms();
-    await wrapper.findAll('.storm-actions .btn')[1].trigger('click');
+    expect(wrapper.find('.pair-card').exists()).toBe(false);
+    expect(wrapper.find('button.pair-open').exists()).toBe(false);
+  });
+
+  it('shows the card with an enabled button when this device has no Storms', async () => {
+    const { wrapper } = await mountStorms();
+    const card = wrapper.find('section.pair-card');
+    expect(card.exists()).toBe(true);
+    expect(card.attributes('aria-labelledby')).toBe('pair-title');
+    expect(card.find('#pair-title').exists()).toBe(true);
+    expect(card.find('button.pair-open').attributes('disabled')).toBeUndefined();
+    expect(wrapper.find('.pair-stub').exists()).toBe(false);
+  });
+
+  it('shows the card with an enabled button when this device has Storms', async () => {
+    rememberStorm({ stormCode: 'AAAA1111', secret: 'SEC-A' });
+    signedMock.mockResolvedValue(detail());
+    const { wrapper } = await mountStorms();
+    expect(wrapper.find('button.pair-open').attributes('disabled')).toBeUndefined();
+  });
+
+  it('opens the dialog from the card and removes it on close', async () => {
+    const { wrapper } = await mountStorms();
+    await wrapper.find('button.pair-open').trigger('click');
+    expect(wrapper.find('.pair-stub').exists()).toBe(true);
+    await wrapper.find('.stub-close').trigger('click');
+    expect(wrapper.find('.pair-stub').exists()).toBe(false);
+  });
+
+  it('has no Forget button, and still drops a Storm whose check answers 401', async () => {
+    rememberStorm({ stormCode: 'GONE0001', secret: 'GONE' }, 2000);
+    rememberStorm({ stormCode: 'FINE0001', secret: 'FINE' }, 1000);
+    signedMock.mockImplementation(async (session: { secret: string }) => {
+      if (session.secret === 'GONE') throw new FakeApiError('Invalid admin key', 401);
+      return detail({ storm_code: 'FINE0001' });
+    });
+    const { wrapper } = await mountStorms();
+    expect(wrapper.findAll('.storm-title').map((t) => t.text())).toEqual(['Storm FINE 0001']);
+    expect(wrapper.findAll('.storm-row button')).toHaveLength(1);
+    expect(wrapper.findAll('button').some((b) => /forget/i.test(`${b.text()} ${b.attributes('aria-label') ?? ''}`))).toBe(false);
+    expect(loadRecent().map((e) => e.stormCode)).toEqual(['FINE0001']);
+  });
+
+  it('reloads the list after a merge and checks the Storms that arrived', async () => {
+    signedMock.mockImplementation(async (session: { stormCode: string }) => detail({ storm_code: session.stormCode, name: 'Arrived' }, 5));
+    const { wrapper } = await mountStorms();
     expect(wrapper.find('.storm-row').exists()).toBe(false);
-    expect(loadRecent()).toEqual([]);
-    // Only the one status check was made, with no options (so no DELETE), and nothing was sent after Forget.
+    await wrapper.find('button.pair-open').trigger('click');
+    rememberStorm({ stormCode: 'NEWW0001', secret: 'SEC-N' });
+    await wrapper.find('.stub-merged').trigger('click');
+    await flushPromises();
+    expect(signedMock).toHaveBeenCalledWith({ stormCode: 'NEWW0001', secret: 'SEC-N' }, 'admin-storm');
+    expect(wrapper.findAll('.storm-title').map((t) => t.text())).toEqual(['Arrived']);
+    expect(wrapper.find('.storm-row').text()).toContain('5 clouds');
+  });
+
+  it('reloads and checks the list on close when the saved list changed behind the page (a merge that ended before done)', async () => {
+    signedMock.mockImplementation(async (session: { stormCode: string }) => detail({ storm_code: session.stormCode, name: 'Arrived' }));
+    const { wrapper } = await mountStorms();
+    await wrapper.find('button.pair-open').trigger('click');
+    rememberStorm({ stormCode: 'NEWW0001', secret: 'SEC-N' });
+    await wrapper.find('.stub-close').trigger('click');
+    await flushPromises();
+    expect(wrapper.find('.pair-stub').exists()).toBe(false);
+    expect(signedMock).toHaveBeenCalledWith({ stormCode: 'NEWW0001', secret: 'SEC-N' }, 'admin-storm');
+    expect(wrapper.findAll('.storm-title').map((t) => t.text())).toEqual(['Arrived']);
+  });
+
+  it('does not re-check anything on close when the saved list is unchanged', async () => {
+    rememberStorm({ stormCode: 'AAAA1111', secret: 'SEC-A' });
+    signedMock.mockResolvedValue(detail());
+    const { wrapper } = await mountStorms();
     expect(signedMock).toHaveBeenCalledTimes(1);
-    expect(signedMock.mock.calls.every((c) => c[1] === 'admin-storm' && c.length === 2)).toBe(true);
+    await wrapper.find('button.pair-open').trigger('click');
+    await wrapper.find('.stub-close').trigger('click');
+    await flushPromises();
+    expect(signedMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not let a check still running from before a merge forget the newer secret the merge brought', async () => {
+    rememberStorm({ stormCode: 'AAAA1111', secret: 'OLD' });
+    let reject!: (e: unknown) => void;
+    signedMock.mockImplementation(async (session: { secret: string }) => {
+      if (session.secret === 'OLD') return new Promise((_, r) => (reject = r));
+      return detail();
+    });
+    const { wrapper } = await mountStorms();
+    await wrapper.find('button.pair-open').trigger('click');
+    rememberStorm({ stormCode: 'AAAA1111', secret: 'NEW' });
+    await wrapper.find('.stub-merged').trigger('click');
+    await flushPromises();
+    reject(new FakeApiError('Invalid admin key', 401));
+    await flushPromises();
+    expect(loadRecent().map((e) => [e.stormCode, e.secret])).toEqual([['AAAA1111', 'NEW']]);
+    expect(wrapper.findAll('.storm-row')).toHaveLength(1);
   });
 });
 

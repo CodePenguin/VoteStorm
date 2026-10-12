@@ -25,6 +25,11 @@
       which your browser never sends to a server, and it is stored on our side only as a one-way hash. Whoever has the link can run the Storm, so keep it
       private. If you add a license, it is saved in your browser.
     </p>
+    <p>
+      If you have a license and sync your Storms with another of your devices, the list of Storms and their secret links is sent end-to-end encrypted from one device to the
+      other through Ably. The key is agreed between the two devices for that one sync, so neither Ably nor we can read the list, and nothing of it is
+      stored on our side.
+    </p>
 
     <h2>Your IP address</h2>
     <p>
@@ -36,7 +41,8 @@
     <p>
       VoteStorm sets no cookies. It uses your browser&rsquo;s local storage for your device ID, which clouds you have answered and what you chose,
       the presenter&rsquo;s view setting, and a license if you added one. If you present, it also keeps the Storms you have created or opened, with their
-      private links, so you can find them again under Your Storms. That list stays in your browser and is never sent to anyone. Clearing your site data
+      private links, so you can find them again under Your Storms. That list stays in your browser unless you sync it with another of your devices, and
+      then it is sent only to that device, end-to-end encrypted. Clearing your site data
       removes all of it, and you will appear as a new device.
     </p>
 
@@ -44,7 +50,10 @@
     <ul>
       <li><strong>Netlify</strong> hosts the site and keeps its own server logs, which include IP addresses.</li>
       <li><strong>Turso</strong> hosts the database that stores Storms, clouds and votes.</li>
-      <li><strong>Ably</strong> delivers live updates. It sees your device ID and IP address while your page is connected.</li>
+      <li>
+        <strong>Ably</strong> delivers live updates, and carries the encrypted messages when you sync your Storms between devices. It sees your device ID
+        and IP address while your page is connected, but cannot read a synced list.
+      </li>
     </ul>
     <p>VoteStorm does not use analytics, advertising or tracking. These providers keep their own logs under their own policies.</p>
     <p>

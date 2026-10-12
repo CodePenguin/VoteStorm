@@ -51,3 +51,44 @@ export function renameRemembered(stormCode: string, name: string | null) {
 export function forgetStorm(stormCode: string) {
   save(loadRecent().filter((e) => e.stormCode !== stormCode));
 }
+
+export interface MergeResult {
+  added: number;
+  updated: number;
+  kept: number;
+}
+
+/**
+ * Folds Storms from another device into this browser's list. For a Storm both know, the later `lastOpenedAt` wins (a reclaimed
+ * key is always the newer one); a timestamp from the future counts as `now`, so it cannot win every later merge. The list stays
+ * at the 50 newest. `updated` counts replaced secrets, `kept` the incoming Storms that changed nothing or did not fit.
+ */
+export function mergeLists(local: RecentStorm[], incoming: RecentStorm[], now: number): { merged: RecentStorm[]; result: MergeResult } {
+  const byCode = new Map(local.map((e) => [e.stormCode, e]));
+  const outcome = new Map<string, 'added' | 'updated' | 'kept'>();
+  for (const raw of incoming) {
+    const next = { ...raw, lastOpenedAt: Math.min(raw.lastOpenedAt, now) };
+    const have = byCode.get(next.stormCode);
+    if (!have) {
+      byCode.set(next.stormCode, next);
+      outcome.set(next.stormCode, 'added');
+    } else if (next.lastOpenedAt > have.lastOpenedAt) {
+      byCode.set(next.stormCode, next);
+      outcome.set(next.stormCode, next.secret !== have.secret ? 'updated' : 'kept');
+    } else {
+      outcome.set(next.stormCode, 'kept');
+    }
+  }
+  const merged = [...byCode.values()].sort((a, b) => b.lastOpenedAt - a.lastOpenedAt).slice(0, MAX_RECENT);
+  const survivors = new Set(merged.map((e) => e.stormCode));
+  const result: MergeResult = { added: 0, updated: 0, kept: 0 };
+  for (const [code, what] of outcome) result[survivors.has(code) ? what : 'kept']++;
+  return { merged, result };
+}
+
+/** `mergeLists` against this browser's saved list. */
+export function mergeRecent(incoming: RecentStorm[], now = Date.now()): MergeResult {
+  const { merged, result } = mergeLists(loadRecent(), incoming, now);
+  save(merged);
+  return result;
+}

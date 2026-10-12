@@ -18,7 +18,7 @@ const sentHeaders = () => fetchMock.mock.calls[0][1].headers as Record<string, s
 describe('api()', () => {
   it('sends the stored license on presenter requests only', async () => {
     setStoredLicense('my.jwt.token');
-    for (const path of ['create-storm', 'admin-storm', 'admin-clouds', 'admin-import', 'license-status', 'license-storms']) {
+    for (const path of ['create-storm', 'admin-storm', 'admin-clouds', 'admin-import', 'license-status', 'license-storms', `pair-token?id=${'ab12'.repeat(16)}`]) {
       fetchMock.mockClear();
       await api(path);
       expect(sentHeaders().authorization).toBe('Bearer my.jwt.token');
@@ -44,5 +44,16 @@ describe('api()', () => {
     const err = (await api('create-storm').catch((e) => e)) as ApiError;
     expect(err).toBeInstanceOf(ApiError);
     expect(err).toMatchObject({ message: 'This license has expired', status: 401, code: 'license_invalid' });
+    expect(err.retryAfter).toBeUndefined();
+  });
+
+  it('carries Retry-After seconds on a 429, and nothing when the header is missing or unreadable', async () => {
+    const tooMany = (headers: Record<string, string>) => new Response(JSON.stringify({ code: 'rate_limited' }), { status: 429, headers });
+    fetchMock.mockResolvedValueOnce(tooMany({ 'retry-after': '720' }));
+    expect(((await api('pair-token?id=x').catch((e) => e)) as ApiError).retryAfter).toBe(720);
+    fetchMock.mockResolvedValueOnce(tooMany({}));
+    expect(((await api('pair-token?id=x').catch((e) => e)) as ApiError).retryAfter).toBeUndefined();
+    fetchMock.mockResolvedValueOnce(tooMany({ 'retry-after': 'soon' }));
+    expect(((await api('pair-token?id=x').catch((e) => e)) as ApiError).retryAfter).toBeUndefined();
   });
 });
