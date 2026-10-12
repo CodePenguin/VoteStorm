@@ -33,6 +33,12 @@ describe('describeActivity', () => {
     expect(describeActivity('admin-storm', 'DELETE', '{}')?.done).toBe('Storm deleted');
   });
 
+  it('names a reclaim and a delete from the license list, and stays silent for the list itself', () => {
+    expect(describeActivity('license-storms', 'GET')).toBeNull();
+    expect(describeActivity('license-storms', 'POST', JSON.stringify({ stormCode: 'ABCD1234' }))).toEqual({ working: 'Reclaiming Storm…', done: 'Storm reclaimed' });
+    expect(describeActivity('license-storms', 'DELETE', JSON.stringify({ stormCode: 'ABCD1234' }))).toEqual({ working: 'Deleting Storm…', done: 'Storm deleted' });
+  });
+
   it('says a content timer is being cleared, not that voting is unlocking', () => {
     expect(patch('admin-storm', { cloudId: 3, votingLocked: false, clearTimer: true })).toEqual({ working: 'Clearing timer…', done: 'Timer cleared' });
     expect(patch('admin-storm', { cloudId: 3, votingLocked: false })).toEqual({ working: 'Unlocking voting…', done: 'Voting open' });

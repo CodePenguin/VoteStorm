@@ -36,14 +36,14 @@ export function describeActivity(path: string, method: string, rawBody?: unknown
     case 'create-storm':
       return { working: 'Creating your Storm\u2026', done: 'Storm created' };
     case 'admin-import':
-      return { working: 'Importing Storm…', done: 'Storm imported' };
+      return { working: 'Importing Storm\u2026', done: 'Storm imported' };
     case 'admin-clouds':
       if (verb === 'DELETE') return { working: 'Deleting cloud\u2026', done: 'Cloud deleted' };
       if (verb === 'POST') return { working: 'Adding cloud\u2026', done: 'Cloud added' };
       if (has(body, 'edit')) return { working: 'Saving cloud\u2026', done: 'Cloud saved' };
       if (body.action === 'reset') return { working: 'Resetting votes\u2026', done: 'Votes reset' };
-      if (has(body, 'hideWord')) return { working: 'Removing word…', done: 'Word removed' };
-      if (has(body, 'showWord')) return { working: 'Restoring word…', done: 'Word restored' };
+      if (has(body, 'hideWord')) return { working: 'Removing word\u2026', done: 'Word removed' };
+      if (has(body, 'showWord')) return { working: 'Restoring word\u2026', done: 'Word restored' };
       if (has(body, 'orderIndex')) return { working: 'Saving order\u2026', done: 'Order saved' };
       return { working: 'Saving\u2026', done: 'Saved' };
     case 'admin-storm':
@@ -53,7 +53,7 @@ export function describeActivity(path: string, method: string, rawBody?: unknown
       if (has(body, 'resultsBackground')) return { working: 'Updating background\u2026', done: 'Background updated' };
       if (body.clearTimer === true) return { working: 'Clearing timer\u2026', done: 'Timer cleared' };
       if (has(body, 'votingLocked') && body.words === true) {
-        return body.votingLocked ? { working: 'Locking submissions…', done: 'Submissions locked' } : { working: 'Unlocking submissions…', done: 'Submissions open' };
+        return body.votingLocked ? { working: 'Locking submissions\u2026', done: 'Submissions locked' } : { working: 'Unlocking submissions\u2026', done: 'Submissions open' };
       }
       if (has(body, 'votingLocked')) return body.votingLocked ? { working: 'Locking voting\u2026', done: 'Voting locked' } : { working: 'Unlocking voting\u2026', done: 'Voting open' };
       if (has(body, 'votingSeconds')) return { working: 'Starting timer\u2026', done: 'Timer started' };
@@ -63,6 +63,9 @@ export function describeActivity(path: string, method: string, rawBody?: unknown
       if (body.status === 'closed') return { working: 'Ending Storm\u2026', done: 'Storm ended' };
       if (has(body, 'status')) return { working: 'Updating Storm\u2026', done: 'Storm updated' };
       return { working: 'Saving\u2026', done: 'Saved' };
+    case 'license-storms':
+      if (verb === 'DELETE') return { working: 'Deleting Storm\u2026', done: 'Storm deleted' };
+      return { working: 'Reclaiming Storm\u2026', done: 'Storm reclaimed' };
     default:
       return { working: 'Saving\u2026', done: 'Saved' };
   }

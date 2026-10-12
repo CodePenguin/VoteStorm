@@ -94,7 +94,7 @@ export async function mintLicense({
     days = days ?? 3650;
   }
   if (!issuer) throw new Error('--issuer is required and must match ALLOWED_LICENSE_ISSUERS exactly');
-  if (!sub) throw new Error('--sub is required (a stable id for the licensee; storms are counted per sub)');
+  if (!sub) throw new Error('--sub is required (a stable id for exactly one licensee; storms are counted per sub, and anyone holding a license with this sub can list, reclaim and delete its storms, so subs must be unique across issuers)');
   const validDays = positive('--days', days) ?? 365;
   const privateJwk = await loadPrivateJwk(key, keyOptions);
   const claims = {};

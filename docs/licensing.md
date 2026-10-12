@@ -8,7 +8,7 @@ Every limit lives in the license, including the anonymous tier's (see [The anony
 
 | Claim | Meaning | If absent |
 |---|---|---|
-| `sub` | Stable id of the licensee. Required. Storms are counted per `sub`. | License rejected |
+| `sub` | Stable id of the licensee. Required. Storms are counted per `sub`, and everyone holding a license with that `sub` can list, reclaim and delete every Storm created under it, so a `sub` must identify exactly one licensee (with several trusted issuers, subs must be unique across them). | License rejected |
 | `name` | Display name shown on the License page. | None shown |
 | `stormInactivityHours` | A Storm is deleted after this many hours without activity. | The anonymous default (24) |
 | `maxQuestionsPerStorm` | Clouds a Storm may hold. | Unlimited |

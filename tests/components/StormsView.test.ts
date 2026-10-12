@@ -15,7 +15,16 @@ const { FakeApiError } = vi.hoisted(() => ({
   },
 }));
 
-vi.mock('@/api', () => ({ getDeviceId: () => 'd', ApiError: FakeApiError }));
+const apiMock = vi.fn();
+vi.mock('@/api', () => ({ api: (...a: unknown[]) => apiMock(...a), getDeviceId: () => 'd', ApiError: FakeApiError }));
+const listMock = vi.fn();
+const reclaimMock = vi.fn();
+const deleteMock = vi.fn();
+vi.mock('@/lib/licenseStorms', () => ({
+  listLicensedStorms: (...a: unknown[]) => listMock(...a),
+  reclaimStorm: (...a: unknown[]) => reclaimMock(...a),
+  deleteLicensedStorm: (...a: unknown[]) => deleteMock(...a),
+}));
 const signedMock = vi.fn();
 vi.mock('@/lib/adminRequest', () => ({ signedApi: (...a: unknown[]) => signedMock(...a) }));
 
@@ -39,6 +48,12 @@ describe('StormsView', () => {
   beforeEach(() => {
     localStorage.clear();
     signedMock.mockReset();
+    apiMock.mockReset();
+    apiMock.mockResolvedValue({ tier: 'anonymous', name: null, expiresAt: null, limits: { stormInactivityHours: 24 } });
+    listMock.mockReset();
+    reclaimMock.mockReset();
+    deleteMock.mockReset();
+    window.confirm = vi.fn(() => true);
   });
 
   it('says so when this device has no Storms yet', async () => {
@@ -115,5 +130,147 @@ describe('StormsView', () => {
     // Only the one status check was made, with no options (so no DELETE), and nothing was sent after Forget.
     expect(signedMock).toHaveBeenCalledTimes(1);
     expect(signedMock.mock.calls.every((c) => c[1] === 'admin-storm' && c.length === 2)).toBe(true);
+  });
+});
+
+describe('StormsView, Storms made under the license that this browser does not know', () => {
+  const licensed = { tier: 'licensed', name: 'Acme', expiresAt: null, limits: { stormInactivityHours: 24 } };
+  const remote = (code: string, over: Record<string, unknown> = {}) => ({
+    stormCode: code, name: null, status: 'lobby', cloudCount: 2, lastActivityAt: Date.now() - 600000, expiresAt: Date.now() + 3600000, ...over,
+  });
+
+  beforeEach(() => {
+    localStorage.clear();
+    signedMock.mockReset();
+    apiMock.mockReset();
+    listMock.mockReset();
+    reclaimMock.mockReset();
+    deleteMock.mockReset();
+    window.confirm = vi.fn(() => true);
+    // A fresh object per call, as the real api parses each response, so every mount's license check is a change.
+    apiMock.mockImplementation(async () => ({ ...licensed }));
+  });
+
+  it('shows only the Storms this browser does not already know, with Reclaim and Delete and no Open', async () => {
+    rememberStorm({ stormCode: 'AAAA1111', secret: 'SEC-A' });
+    signedMock.mockResolvedValue(detail());
+    listMock.mockResolvedValue([remote('AAAA1111'), remote('CCCC3333', { name: 'Lost one' })]);
+    const { wrapper } = await mountStorms();
+    const group = wrapper.find('.elsewhere');
+    expect(group.exists()).toBe(true);
+    const rows = group.findAll('.storm-row');
+    expect(rows).toHaveLength(1);
+    expect(rows[0].find('.storm-title').text()).toBe('Lost one');
+    expect(rows[0].find('.reclaim').exists()).toBe(true);
+    expect(rows[0].find('.delete-elsewhere').exists()).toBe(true);
+    expect(rows[0].findAll('button').map((b) => b.classes().includes('open'))).not.toContain(true);
+  });
+
+  it('never asks the server for the list under the anonymous tier, and shows no group', async () => {
+    apiMock.mockResolvedValue({ tier: 'anonymous', name: null, expiresAt: null, limits: { stormInactivityHours: 24 } });
+    const { wrapper } = await mountStorms();
+    expect(listMock).not.toHaveBeenCalled();
+    expect(wrapper.find('.elsewhere').exists()).toBe(false);
+  });
+
+  it('leaves the page working when the lookup fails', async () => {
+    rememberStorm({ stormCode: 'AAAA1111', secret: 'SEC-A' });
+    signedMock.mockResolvedValue(detail());
+    listMock.mockRejectedValue(new Error('down'));
+    const { wrapper } = await mountStorms();
+    expect(wrapper.find('.elsewhere').exists()).toBe(false);
+    expect(wrapper.findAll('.storm-row')).toHaveLength(1);
+  });
+
+  it('shows the group instead of the empty-state card when only the license knows of Storms', async () => {
+    listMock.mockResolvedValue([remote('CCCC3333')]);
+    const { wrapper } = await mountStorms();
+    expect(wrapper.find('.empty').exists()).toBe(false);
+    expect(wrapper.find('.elsewhere .storm-row').exists()).toBe(true);
+  });
+
+  it('moves a Storm into the group when its saved secret turns out to be dead', async () => {
+    rememberStorm({ stormCode: 'AAAA1111', secret: 'OLD' });
+    signedMock.mockRejectedValue(new FakeApiError('Invalid admin credentials', 401));
+    listMock.mockResolvedValue([remote('AAAA1111')]);
+    const { wrapper } = await mountStorms();
+    expect(wrapper.findAll('.storm-row').filter((r) => !r.element.closest('.elsewhere'))).toHaveLength(0);
+    expect(wrapper.find('.elsewhere .storm-row').exists()).toBe(true);
+  });
+
+  it('reclaims after asking, remembers the new secret and opens the presenter with it', async () => {
+    listMock.mockResolvedValue([remote('CCCC3333', { name: 'Lost one' })]);
+    reclaimMock.mockResolvedValue({ stormCode: 'CCCC3333', secret: 'FRESH' });
+    const { wrapper, router } = await mountStorms();
+    await wrapper.find('.reclaim').trigger('click');
+    await flushPromises();
+    expect(window.confirm).toHaveBeenCalled();
+    expect(reclaimMock).toHaveBeenCalledWith('CCCC3333');
+    expect(loadRecent()).toEqual([expect.objectContaining({ stormCode: 'CCCC3333', secret: 'FRESH', name: 'Lost one' })]);
+    expect(router.currentRoute.value.path).toBe('/presenter/CCCC3333');
+    expect(router.currentRoute.value.hash).toContain('FRESH');
+  });
+
+  it('drops the row after a reclaim even when opening the presenter fails', async () => {
+    listMock.mockResolvedValue([remote('CCCC3333'), remote('DDDD4444')]);
+    reclaimMock.mockResolvedValue({ stormCode: 'CCCC3333', secret: 'FRESH' });
+    const { wrapper, router } = await mountStorms();
+    vi.spyOn(router, 'push').mockRejectedValue(new Error('navigation failed'));
+    await wrapper.findAll('.elsewhere .reclaim')[0].trigger('click');
+    await flushPromises();
+    expect(wrapper.findAll('.elsewhere .storm-row')).toHaveLength(1);
+    expect(wrapper.find('.elsewhere .storm-title').text()).toContain('DDDD');
+    expect(loadRecent()).toEqual([expect.objectContaining({ stormCode: 'CCCC3333', secret: 'FRESH' })]);
+  });
+
+  it('names the Storm on its Reclaim button', async () => {
+    listMock.mockResolvedValue([remote('CCCC3333', { name: 'Lost one' })]);
+    const { wrapper } = await mountStorms();
+    expect(wrapper.find('.reclaim').attributes('aria-label')).toBe('Reclaim Lost one');
+  });
+
+  it('does nothing when the confirmation is declined', async () => {
+    window.confirm = vi.fn(() => false);
+    listMock.mockResolvedValue([remote('CCCC3333')]);
+    const { wrapper } = await mountStorms();
+    await wrapper.find('.reclaim').trigger('click');
+    await wrapper.find('.delete-elsewhere').trigger('click');
+    await flushPromises();
+    expect(reclaimMock).not.toHaveBeenCalled();
+    expect(deleteMock).not.toHaveBeenCalled();
+  });
+
+  it('shows the reason on the row when a reclaim is refused, and stays on the page', async () => {
+    listMock.mockResolvedValue([remote('CCCC3333')]);
+    reclaimMock.mockRejectedValue(new Error('Storm not found'));
+    const { wrapper, router } = await mountStorms();
+    await wrapper.find('.reclaim').trigger('click');
+    await flushPromises();
+    expect(wrapper.find('.elsewhere [role=alert]').exists()).toBe(true);
+    expect(router.currentRoute.value.path).toBe('/storms');
+    expect(loadRecent()).toEqual([]);
+  });
+
+  it('deletes after asking and drops the row, keeping the others', async () => {
+    listMock.mockResolvedValue([remote('CCCC3333'), remote('DDDD4444')]);
+    deleteMock.mockResolvedValue({ ok: true });
+    const { wrapper } = await mountStorms();
+    await wrapper.findAll('.elsewhere .delete-elsewhere')[0].trigger('click');
+    await flushPromises();
+    expect(deleteMock).toHaveBeenCalledWith('CCCC3333');
+    expect(wrapper.findAll('.elsewhere .storm-row')).toHaveLength(1);
+  });
+
+  it('disables both buttons while a call is running', async () => {
+    listMock.mockResolvedValue([remote('CCCC3333')]);
+    let finish!: () => void;
+    reclaimMock.mockImplementation(() => new Promise((resolve) => (finish = () => resolve({ stormCode: 'CCCC3333', secret: 'S' }))));
+    const { wrapper } = await mountStorms();
+    await wrapper.find('.reclaim').trigger('click');
+    await flushPromises();
+    expect(wrapper.find('.reclaim').attributes('disabled')).toBeDefined();
+    expect(wrapper.find('.delete-elsewhere').attributes('disabled')).toBeDefined();
+    finish();
+    await flushPromises();
   });
 });

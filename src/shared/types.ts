@@ -113,6 +113,16 @@ export interface LicenseSummary {
   usage?: { activeStorms: number };
 }
 
+/** A Storm created under the presented license, as `license-storms` lists it. */
+export interface LicensedStorm {
+  stormCode: string;
+  name: string | null;
+  status: string;
+  cloudCount: number;
+  lastActivityAt: number;
+  expiresAt: number;
+}
+
 export interface AdminStormData {
   storm: AdminStorm;
   clouds: AdminCloud[];
