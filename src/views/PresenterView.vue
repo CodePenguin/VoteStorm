@@ -156,6 +156,7 @@ async function init() {
   ably?.close();
   ably = subscribeStorm(store.storm.value!.storm_code, {
     tally: (data) => store.onTally(data),
+    audience: (data) => store.onAudience(data),
     state: () => onState(),
   });
 }

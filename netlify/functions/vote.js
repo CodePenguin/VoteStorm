@@ -5,6 +5,7 @@ import { publishEvent } from '../../lib/realtime.js';
 import { publicTally, votingClosed } from '../../lib/cloud.js';
 import { cleanWordList, DEFAULT_MAX_WORDS } from '../../lib/words.js';
 import { rateLimit, rateLimitByIp } from '../../lib/rateLimit.js';
+import { countAudience } from '../../lib/storms.js';
 import { json } from '../../lib/http.js';
 
 const MAX_BODY_BYTES = 8192;
@@ -79,17 +80,15 @@ export async function handler(event) {
     sentWords = cleaned.words;
   }
 
+  // A device's first vote in the Storm grows its audience: that is checked against the limit, and announced afterwards.
+  const earlier = await db.execute({
+    sql: 'SELECT 1 FROM votes v JOIN clouds q ON q.id = v.cloud_id WHERE q.storm_code = ? AND v.device_id = ? LIMIT 1',
+    args: [storm.storm_code, deviceId],
+  });
+  const newDevice = earlier.rows.length === 0;
   const { maxAudiencePerStorm } = stormLicense(storm);
-  if (maxAudiencePerStorm) {
-    const audience = await db.execute({
-      sql: `SELECT COUNT(DISTINCT v.device_id) AS n, MAX(v.device_id = ?) AS mine
-            FROM votes v JOIN clouds q ON q.id = v.cloud_id WHERE q.storm_code = ?`,
-      args: [deviceId, storm.storm_code],
-    });
-    const { n, mine } = audience.rows[0];
-    if (!Number(mine) && Number(n) >= maxAudiencePerStorm) {
-      return json(403, { error: 'This Storm has reached its audience limit.', code: 'audience_full' });
-    }
+  if (newDevice && maxAudiencePerStorm && (await countAudience(db, storm.storm_code)) >= maxAudiencePerStorm) {
+    return json(403, { error: 'This Storm has reached its audience limit.', code: 'audience_full' });
   }
 
   // A device may change its answer while the cloud is live: one row per device, replaced on resubmit.
@@ -100,6 +99,8 @@ export async function handler(event) {
   });
 
   await touchStormActivity(db, storm.storm_code);
+  // Once per device, on its first vote in the Storm, so the presenter's audience count stays live without a message per vote.
+  if (newDevice) await publishEvent(storm.storm_code, 'audience', { audience: await countAudience(db, storm.storm_code) });
   const votesResult = await db.execute({
     sql: 'SELECT * FROM votes WHERE cloud_id = ?',
     args: [cloudId],

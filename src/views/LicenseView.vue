@@ -36,7 +36,7 @@ async function activate() {
       <h2 class="plan-name">{{ isLicensed ? license.summary.value.name || 'Licensed' : 'Anonymous' }}</h2>
       <p v-if="!isLicensed" class="muted">No license is loaded. Storms use the default limits below.</p>
       <p v-else-if="expires" class="muted">Valid until {{ expires }}</p>
-      <LicenseLimitsList v-if="limits" :limits="limits" />
+      <LicenseLimitsList v-if="limits" :limits="limits" :usage="license.summary.value.usage" />
       <div v-if="isLicensed" class="row" style="margin-top: 16px">
         <button class="btn" @click="license.remove()">Remove license</button>
       </div>

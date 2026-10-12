@@ -2,6 +2,7 @@
 import { onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { ApiError } from '@/api';
+import AccountChip from '@/components/AccountChip.vue';
 import { signedApi } from '@/lib/adminRequest';
 import { formatStormCode } from '@/lib/stormCode';
 import { presenterLocation } from '@/lib/fragment';
@@ -66,6 +67,7 @@ function forget(row: Row) {
 
 <template>
   <main class="container storms-page">
+    <AccountChip />
     <RouterLink to="/" class="muted back">&larr; Back</RouterLink>
     <h1>Your Storms</h1>
     <p class="lead">Storms you have created or opened in this browser. Their links are kept here only, so clearing your browser data forgets them.</p>

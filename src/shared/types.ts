@@ -109,6 +109,8 @@ export interface LicenseSummary {
   name: string | null;
   expiresAt: number | null;
   limits: LicenseLimits;
+  /** Only `license-status` reports this; the anonymous tier's count covers the whole server. */
+  usage?: { activeStorms: number };
 }
 
 export interface AdminStormData {
@@ -117,6 +119,8 @@ export interface AdminStormData {
   showConnect: boolean;
   resultsBackground: string | null;
   license: LicenseSummary;
+  /** Devices that have voted in this Storm: what its audience limit counts. */
+  usage?: { audience: number };
 }
 
 export type TimerMode = 'none' | 'manual' | 'auto';

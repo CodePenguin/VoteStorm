@@ -247,6 +247,17 @@ describe('license enforcement', () => {
       return { ...body, admin, q1, q2 };
     }
 
+    it('tells the presenter how many devices have voted, counting a device once across clouds', async () => {
+      const storm = await liveStorm({ maxAudiencePerStorm: 5 });
+      const audience = async () => JSON.parse((await getStorm(storm.admin)).body).usage.audience;
+      expect(await audience()).toBe(0);
+      await castVote(storm.stormCode, storm.q1, 'd1');
+      await castVote(storm.stormCode, storm.q1, 'd2');
+      await activate(storm.admin, storm.q2);
+      await castVote(storm.stormCode, storm.q2, 'd1');
+      expect(await audience()).toBe(2);
+    });
+
     it('lets the first N devices vote and turns the next one away', async () => {
       const storm = await liveStorm({ maxAudiencePerStorm: 2 });
       expect((await castVote(storm.stormCode, storm.q1, 'd1')).statusCode).toBe(200);
@@ -392,6 +403,17 @@ describe('license enforcement', () => {
       const bad = await status(bearer('nope'));
       expect(bad.statusCode).toBe(401);
       expect(JSON.parse(bad.body).code).toBe('license_invalid');
+    });
+
+    it('reports how many Storms the license has in use, and the anonymous tier counts the whole server', async () => {
+      const jwt = await issuer.sign({ name: 'Zed', maxActiveStorms: 4 });
+      expect(JSON.parse((await status(bearer(jwt))).body).usage).toEqual({ activeStorms: 0 });
+      await create(jwt);
+      await create(jwt);
+      await create();
+      expect(JSON.parse((await status(bearer(jwt))).body).usage).toEqual({ activeStorms: 2 });
+      await create();
+      expect(JSON.parse((await status({})).body).usage).toEqual({ activeStorms: 2 });
     });
 
     it('only answers GET', async () => {

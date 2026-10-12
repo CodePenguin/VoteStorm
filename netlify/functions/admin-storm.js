@@ -1,7 +1,7 @@
 import { createDb, initSchema, touchStormActivity, deleteStormCascade, deleteVotesForStorm, connectVisible, resultsBackground } from '../../lib/db.js';
 import { normalizeHexColor } from '../../lib/color.js';
 import { verifyAdmin } from '../../lib/adminAuth.js';
-import { MAX_NAME_LENGTH, normalizeStormName } from '../../lib/storms.js';
+import { MAX_NAME_LENGTH, countAudience, normalizeStormName } from '../../lib/storms.js';
 import { applyPresentedLicense, describeLicense } from '../../lib/license.js';
 import { computeTally } from '../../lib/tally.js';
 import { publishEvent } from '../../lib/realtime.js';
@@ -35,7 +35,7 @@ export async function handler(event) {
       const votesResult = await db.execute({ sql: 'SELECT * FROM votes WHERE cloud_id = ?', args: [cloud.id] });
       clouds.push({ ...cloud, voting_ms_left: votingMsLeft(cloud), tally: computeTally(cloud, votesResult.rows) });
     }
-    return json(200, { storm, clouds, showConnect: connectVisible(storm), resultsBackground: resultsBackground(storm), license: describeLicense(license) });
+    return json(200, { storm, clouds, showConnect: connectVisible(storm), resultsBackground: resultsBackground(storm), license: describeLicense(license), usage: { audience: await countAudience(db, storm.storm_code) } });
   }
 
   if (event.httpMethod === 'PATCH') {

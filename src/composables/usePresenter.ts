@@ -25,6 +25,7 @@ export function usePresenter(session: Ref<AdminSession>, options: PresenterOptio
   const resultsBackground = ref<string | null>(null);
   const resultsKey = ref<string | null>(null);
   const license = ref<LicenseSummary | null>(null);
+  const audience = ref<number | null>(null);
   const error = ref<string | null>(null);
   const copiedCloud = ref<number | null>(null);
 
@@ -48,6 +49,7 @@ export function usePresenter(session: Ref<AdminSession>, options: PresenterOptio
     resultsBackground.value = data.resultsBackground ?? null;
     resultsKey.value = key;
     license.value = data.license ?? null;
+    audience.value = data.usage?.audience ?? null;
   }
 
   /** Forgets everything shown, for when the link now points at a different Storm (or none). */
@@ -59,6 +61,7 @@ export function usePresenter(session: Ref<AdminSession>, options: PresenterOptio
     resultsBackground.value = null;
     resultsKey.value = null;
     license.value = null;
+    audience.value = null;
     error.value = null;
     copiedCloud.value = null;
   }
@@ -101,6 +104,11 @@ export function usePresenter(session: Ref<AdminSession>, options: PresenterOptio
       return;
     }
     q.tally = data as VisibleTally;
+  }
+
+  /** A device cast its first vote: the Storm announces its new audience size. */
+  function onAudience(data: { audience: number }) {
+    if (typeof data?.audience === 'number') audience.value = data.audience;
   }
 
   const currentQ = computed(() => clouds.value.find((q) => q.id === storm.value?.current_cloud_id) ?? null);
@@ -234,9 +242,9 @@ export function usePresenter(session: Ref<AdminSession>, options: PresenterOptio
   }
 
   return {
-    storm, clouds, showConnect, resultsBackground, resultsKey, license, error, copiedCloud,
+    storm, clouds, showConnect, resultsBackground, resultsKey, license, audience, error, copiedCloud,
     currentQ, currentIndex,
-    load, reset, safeLoad, onTally, canStep, stepCloud, activate, swap, saveCloud, deleteStorm, duplicateStorm, importStorm, setName, setConnect, setResultsBackground, lockVoting, clearTimer, startTimer, addTime, hideWord, showWord, copyCloudLink, cloudLink,
+    load, reset, safeLoad, onTally, onAudience, canStep, stepCloud, activate, swap, saveCloud, deleteStorm, duplicateStorm, importStorm, setName, setConnect, setResultsBackground, lockVoting, clearTimer, startTimer, addTime, hideWord, showWord, copyCloudLink, cloudLink,
     setCloudFlag: (flags: Record<string, unknown>) => act(() => patchStorm(flags)),
     resetCloud: (cloudId: number) => act(() => patchCloud({ cloudId, action: 'reset' })),
     resetStorm: () => act(() => patchStorm({ action: 'reset' })),

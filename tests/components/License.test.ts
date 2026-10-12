@@ -19,6 +19,7 @@ vi.mock('@/api', () => ({
 
 import LicenseView from '@/views/LicenseView.vue';
 import App from '@/App.vue';
+import LandingView from '@/views/LandingView.vue';
 import { takeLicenseFromHash, useLicense } from '@/composables/useLicense';
 import { getStoredLicense } from '@/licenseStorage';
 
@@ -155,5 +156,42 @@ describe('license links', () => {
     expect(getStoredLicense()).toBeNull();
     expect(useLicense().activateError.value).toContain('Invalid license');
     expect(wrapper.find('.alert.error').text()).toContain('Invalid license');
+  });
+});
+
+describe('license usage', () => {
+  const capped: LicenseSummary = { ...anonymous, limits: { stormInactivityHours: 24, maxActiveStorms: 5 }, usage: { activeStorms: 2 } };
+
+  beforeEach(() => {
+    localStorage.clear();
+    apiMock.mockReset();
+    apiMock.mockResolvedValue(capped);
+  });
+
+  it('shows Storms in use against the allowance on the license page', async () => {
+    const { wrapper } = await mountAt('/license', LicenseView);
+    expect(wrapper.text()).toContain('2 / 5');
+  });
+
+  it('shows the same count in the account chip, flagged once the allowance is used up', async () => {
+    const { wrapper } = await mountAt('/', LandingView);
+    expect(wrapper.find('.account-chip').text()).toContain('2/5');
+    expect(wrapper.find('.account-chip').classes()).not.toContain('full');
+    apiMock.mockResolvedValue({ ...capped, usage: { activeStorms: 5 } });
+    await useLicense().refresh();
+    await flushPromises();
+    expect(wrapper.find('.account-chip').classes()).toContain('full');
+  });
+
+  it('shows clouds and audience in use out of their caps, and marks a row that has reached its cap', async () => {
+    const { default: LicenseLimitsList } = await import('@/components/LicenseLimitsList.vue');
+    const wrapper = mount(LicenseLimitsList, {
+      props: { limits: { stormInactivityHours: 24, maxQuestionsPerStorm: 10, maxAudiencePerStorm: 500 }, usage: { clouds: 4, audience: 500 } },
+    });
+    const row = (label: string) => wrapper.findAll('.limit-row').find((r) => r.text().includes(label))!;
+    expect(row('Clouds').text()).toContain('4 / 10');
+    expect(row('Clouds').find('dd').classes()).not.toContain('full');
+    expect(row('Audience').text()).toContain('500 / 500');
+    expect(row('Audience').find('dd').classes()).toContain('full');
   });
 });

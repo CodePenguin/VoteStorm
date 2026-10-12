@@ -164,7 +164,7 @@ function resetColor() {
         <strong>{{ store.license.value.tier === 'licensed' ? store.license.value.name || 'Licensed' : 'Anonymous' }}</strong>
         <RouterLink to="/license" style="margin-left: 8px; font-size: .85rem">Manage license</RouterLink>
       </p>
-      <LicenseLimitsList :limits="store.license.value.limits" />
+      <LicenseLimitsList :limits="store.license.value.limits" :usage="{ clouds: store.clouds.value.length, audience: store.audience.value }" />
     </div>
 
     <div class="card" style="margin-bottom: 16px">

@@ -246,3 +246,31 @@ describe('usePresenter importStorm', () => {
     expect(renameRemembered).not.toHaveBeenCalled();
   });
 });
+
+describe('usePresenter audience count', () => {
+  beforeEach(() => {
+    signedMock.mockReset();
+    signedMock.mockImplementation(async (_s: unknown, fn: string, init: RequestInit = {}) => {
+      if (fn === 'admin-storm' && !init.method) return { ...stormData('ABCDEFGH'), usage: { audience: 3 } };
+      return { ok: true };
+    });
+  });
+
+  it('starts from the loaded count and follows each announcement of a new device', async () => {
+    const store = usePresenter(ref({ stormCode: 'ABCDEFGH', secret: 's' }));
+    expect(store.audience.value).toBeNull();
+    await store.load();
+    expect(store.audience.value).toBe(3);
+    store.onAudience({ audience: 4 });
+    expect(store.audience.value).toBe(4);
+  });
+
+  it('ignores a malformed announcement and forgets the count when the Storm changes', async () => {
+    const store = usePresenter(ref({ stormCode: 'ABCDEFGH', secret: 's' }));
+    await store.load();
+    store.onAudience({ audience: 'many' } as never);
+    expect(store.audience.value).toBe(3);
+    store.reset();
+    expect(store.audience.value).toBeNull();
+  });
+});

@@ -48,6 +48,29 @@ describe('vote function', () => {
     expect(publishEvent).toHaveBeenCalledWith('STORM01', 'tally', expect.objectContaining({ cloudId: 1 }));
   });
 
+  describe('audience announcements', () => {
+    const cast = (deviceId, value = 0) => handler({ httpMethod: 'POST', body: JSON.stringify({ stormCode: 'STORM01', cloudId: 1, deviceId, value }) });
+    const announced = () => publishEvent.mock.calls.filter(([, name]) => name === 'audience').map(([, , data]) => data);
+
+    it('announces the audience size on a device\'s first vote only, not on a re-vote', async () => {
+      await cast('dev-1');
+      await cast('dev-1', 1);
+      await cast('dev-2');
+      await cast('dev-2', 1);
+      expect(announced()).toEqual([{ audience: 1 }, { audience: 2 }]);
+    });
+
+    it('does not announce a vote that was refused', async () => {
+      await cast('dev-1', 9);
+      expect(announced()).toEqual([]);
+    });
+
+    it('keeps the tally as the last event of a vote', async () => {
+      await cast('dev-1');
+      expect(publishEvent).toHaveBeenLastCalledWith('STORM01', 'tally', expect.objectContaining({ cloudId: 1 }));
+    });
+  });
+
   describe('locked and timed voting', () => {
     const cast = (value, deviceId = 'dev-a') => handler({ httpMethod: 'POST', body: JSON.stringify({ stormCode: 'STORM01', cloudId: 1, deviceId, value }) });
     const setClosesAt = (ms) => createDb().execute({ sql: 'UPDATE clouds SET closes_at = ? WHERE id = 1', args: [ms] });
